@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Interview Room</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .room-shell { max-width: 1040px; margin: 0 auto; padding: 26px 20px 60px; }
+  .room-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .room-grid { display:grid; grid-template-columns: 2fr 1fr; gap:16px; }
+  @media (max-width: 820px) { .room-grid { grid-template-columns: 1fr; } }
+  .video-wrap { position:relative; background:#0d1626; border-radius:12px; overflow:hidden; aspect-ratio:16/10; }
+  .video-wrap video { width:100%; height:100%; object-fit:cover; display:block; }
+  .video-label { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,0.55); color:#fff; font-size:12px; padding:3px 9px; border-radius:20px; }
+  .video-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+  .ai-tile { display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#0f6e6a,#13233f); color:#fff; font-weight:700; font-size:14px; flex-direction:column; gap:8px; }
+  .ai-pulse { width:14px; height:14px; border-radius:50%; background:#7be0c0; box-shadow:0 0 0 0 rgba(123,224,192,0.6); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(123,224,192,0.55);} 70%{box-shadow:0 0 0 14px rgba(123,224,192,0);} 100%{box-shadow:0 0 0 0 rgba(123,224,192,0);} }
+  .controls-bar { display:flex; gap:8px; justify-content:center; margin:10px 0 4px; }
+  .icon-btn { width:42px; height:42px; border-radius:50%; border:1px solid var(--border); background:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .icon-btn.off { background:var(--danger); color:#fff; border-color:var(--danger); }
+  .transcript-panel { height:360px; overflow-y:auto; background:#fafbfc; border-radius:8px; padding:12px; font-size:13px; }
+  .t-line { margin-bottom:10px; }
+  .t-who { font-weight:700; font-size:11.5px; text-transform:uppercase; letter-spacing:0.03em; }
+  .t-who.ai { color: var(--teal); }
+  .t-who.candidate { color: var(--navy); }
+  .t-who.hr { color: var(--gold); }
+  .qa-box { margin-top:14px; }
+  .status-strip { font-size:12.5px; padding:8px 12px; border-radius:8px; background:var(--teal-light); color:#0b4a47; margin-bottom:14px; }
+  .status-strip.paused { background:#fff4e0; color:#93650a; }
+</style>
+</head>
+<body>
+  <div class="room-shell">
+    <div id="loading" class="card" style="text-align:center; padding:40px;">Connecting to your interview room…</div>
+
+    <div id="room" style="display:none;">
+      <div class="room-head">
+        <div>
+          <div style="font-weight:800; font-size:18px;" id="roomTitle">Interview room</div>
+          <div class="muted" id="roomSub" style="font-size:13px;"></div>
+        </div>
+        <span class="pill neutral" id="modeBadge">—</span>
+      </div>
+
+      <div id="statusStrip" class="status-strip" style="display:none;"></div>
+
+      <div class="room-grid">
+        <div>
+          <div class="video-row">
+            <div class="video-wrap"><video id="localVideo" autoplay playsinline muted></video><div class="video-label" id="localLabel">You</div></div>
+            <div class="video-wrap" id="remoteTile"><video id="remoteVideo" autoplay playsinline></video><div class="video-label" id="remoteLabel">Waiting…</div><div class="ai-tile" id="aiTile" style="display:none; position:absolute; inset:0;"><div class="ai-pulse"></div>Tech-Life AI Interviewer</div></div>
+          </div>
+
+          <div class="controls-bar">
+            <button class="icon-btn" id="micBtn" onclick="toggleMic()" title="Mute/unmute">🎤</button>
+            <button class="icon-btn" id="camBtn" onclick="toggleCam()" title="Camera on/off">📷</button>
+            <button class="icon-btn off" onclick="leaveRoom()" title="Leave">✕</button>
+          </div>
+
+          <div id="candidateQA" class="card qa-box" style="display:none;">
+            <div class="section-title" style="margin-top:0;" id="qaTitle">Current question</div>
+            <div id="qaText" style="font-weight:600; margin-bottom:10px;"></div>
+            <div id="qaOptions"></div>
+            <textarea id="qaAnswer" rows="3" placeholder="Type your answer here (or just speak it if your mic is on)"></textarea>
+            <button class="btn teal" style="margin-top:10px;" onclick="submitAnswer()">Submit answer</button>
+            <div class="muted" id="qaHint" style="font-size:12px; margin-top:8px;"></div>
+          </div>
+
+          <div id="hrControls" class="card" style="display:none; margin-top:14px;">
+            <div class="section-title" style="margin-top:0;">Interview controls</div>
+            <div class="flex wrap">
+              <button class="btn gold sm" id="takeoverBtn" onclick="takeover()">Take over from AI</button>
+              <button class="btn secondary sm" id="resumeBtn" style="display:none;" onclick="resumeAI()">Hand back to AI</button>
+              <button class="btn teal sm" onclick="openDecision()">End &amp; decide</button>
+            </div>
+          </div>
+
+          <div id="decisionCard" class="card" style="display:none; margin-top:14px;">
+            <div class="section-title" style="margin-top:0;">Record decision</div>
+            <div class="field">
+              <label>Decision</label>
+              <select id="decisionSelect">
+                <option value="selected">Select / Promote</option>
+                <option value="hold">Hold</option>
+                <option value="rejected">Reject / Not this time</option>
+              </select>
+            </div>
+            <div class="field"><label>Notes</label><textarea id="decisionNotes" rows="3"></textarea></div>
+            <label class="opt-row"><input type="checkbox" id="notifyCandidate" checked style="width:auto;"/> Email the result to the candidate</label>
+            <div id="decisionErr" class="error-msg" style="margin-top:8px;"></div>
+            <button class="btn teal" style="width:100%; margin-top:10px;" onclick="submitDecision()">Save decision</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="section-title" style="margin-top:0;">Live transcript</div>
+          <div class="transcript-panel" id="transcriptPanel"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/interview-room.js"></script>
+</body>
+</html>

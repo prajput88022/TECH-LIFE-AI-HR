@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Superadmin</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="brand">Tech-Life <span>AI HR</span></div>
+    <div class="role-tag">Superadmin console</div>
+
+    <button class="nav-item active" data-view="overview" onclick="showView('overview')">Overview</button>
+    <button class="nav-item" data-view="tenants" onclick="showView('tenants')">Organizations</button>
+    <button class="nav-item" data-view="integrations" onclick="showView('integrations')">Integrations</button>
+    <button class="nav-item" data-view="industries" onclick="showView('industries')">Industries</button>
+    <button class="nav-item" data-view="activity" onclick="showView('activity')">Platform Activity</button>
+
+    <div class="sidebar-footer">
+      <div class="who-box">
+        <div class="nm" id="whoName">—</div>
+        <div class="em" id="whoEmail">—</div>
+      </div>
+      <button class="btn secondary" style="width:100%;" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- OVERVIEW -->
+    <div id="view-overview">
+      <div class="page-head">
+        <div>
+          <h1>Platform overview</h1>
+          <p>Snapshot across every organization on Tech-Life AI HR.</p>
+        </div>
+      </div>
+      <div class="grid cols-4" id="overviewStats"></div>
+
+      <div class="section-title">Recent platform activity</div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>When</th><th>Organization</th><th>Actor</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody id="overviewActivityBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TENANTS -->
+    <div id="view-tenants" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Organizations</h1>
+          <p>Create organizations, provision their users, and choose which features each one can use.</p>
+        </div>
+        <button class="btn teal" onclick="openCreateTenant()">+ New organization</button>
+      </div>
+      <div class="grid cols-2" id="tenantGrid"></div>
+    </div>
+
+    <!-- INTEGRATIONS -->
+    <div id="view-integrations" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Integrations &amp; vendor configuration</h1>
+          <p>Choose which LLM, ASR/STT, TTS voice, bot engine, telephony, meeting and mail-server vendor powers each part of the platform. Settings apply platform-wide.</p>
+        </div>
+      </div>
+      <div id="integrationsGrid" class="grid cols-2"></div>
+    </div>
+
+    <!-- INDUSTRIES -->
+    <div id="view-industries" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Industry catalog</h1>
+          <p>These industries are available to every organization's candidate/employee forms and AI interviews. Add more as needed — the question engine adapts automatically.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-title" style="margin-top:0;">Add an industry</div>
+        <div class="grid cols-2">
+          <div class="field"><label>Key (short, no spaces)</label><input id="newIndKey" placeholder="e.g. space_tech" /></div>
+          <div class="field"><label>Display label</label><input id="newIndLabel" placeholder="e.g. Space Technology" /></div>
+        </div>
+        <div class="field"><label>Focus question (asked in addition to the level-based questions)</label><input id="newIndQuestion" placeholder="e.g. How do you approach mission-critical reliability in your work?" /></div>
+        <div id="errAddIndustry" class="error-msg"></div>
+        <button class="btn teal sm" onclick="submitAddIndustry()">Add industry</button>
+      </div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Key</th><th>Label</th><th>Focus question</th><th>Source</th><th></th></tr></thead>
+            <tbody id="industriesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACTIVITY -->
+    <div id="view-activity" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Platform activity log</h1>
+          <p>Every login, organization change and feature toggle across all tenants.</p>
+        </div>
+      </div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>When</th><th>Organization</th><th>Actor</th><th>Role</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody id="activityBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: create tenant -->
+<div class="modal-backdrop" id="modalCreateTenant">
+  <div class="modal">
+    <h3>New organization</h3>
+    <div class="sub">Set up a tenant workspace and choose its starting features.</div>
+    <div id="errCreateTenant" class="error-msg"></div>
+    <div class="field">
+      <label>Organization name</label>
+      <input id="newTenantName" placeholder="e.g. Acme Manufacturing Pvt Ltd" />
+    </div>
+    <div class="field">
+      <label>Organization code (used at login)</label>
+      <input id="newTenantCode" placeholder="e.g. acme" />
+    </div>
+    <div class="field">
+      <label>Features to enable</label>
+      <div id="newTenantFeatures"></div>
+    </div>
+    <div class="flex end" style="margin-top:16px;">
+      <button class="btn secondary" onclick="closeModal('modalCreateTenant')">Cancel</button>
+      <button class="btn teal" onclick="submitCreateTenant()">Create organization</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: manage tenant (features + users) -->
+<div class="modal-backdrop" id="modalManageTenant">
+  <div class="modal" style="width:560px;">
+    <h3 id="manageTenantTitle">Organization</h3>
+    <div class="sub" id="manageTenantSub"></div>
+
+    <div class="section-title" style="margin-top:6px;">Features</div>
+    <div id="manageFeaturesList"></div>
+    <div class="flex end" style="margin-top:10px;">
+      <button class="btn teal sm" onclick="saveFeatures()">Save feature changes</button>
+    </div>
+
+    <div class="section-title">Users in this organization</div>
+    <div id="manageUsersList"></div>
+
+    <div class="section-title">Add a user</div>
+    <div class="grid cols-2">
+      <div class="field"><label>Full name</label><input id="newUserName" /></div>
+      <div class="field"><label>Role</label>
+        <select id="newUserRole">
+          <option value="hr">HR</option>
+          <option value="management">Management</option>
+        </select>
+      </div>
+      <div class="field"><label>Email</label><input id="newUserEmail" type="email" /></div>
+      <div class="field"><label>Temporary password</label><input id="newUserPassword" type="text" placeholder="e.g. Welcome@123" /></div>
+    </div>
+    <div id="errAddUser" class="error-msg"></div>
+    <div class="flex end" style="margin-top:6px;">
+      <button class="btn secondary" onclick="closeModal('modalManageTenant')">Close</button>
+      <button class="btn gold" onclick="submitAddUser()">Create user</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/superadmin.js"></script>
+</body>
+</html>

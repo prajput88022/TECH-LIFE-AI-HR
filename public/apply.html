@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Candidate Screening Form</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="apply-shell">
+    <div id="loading" class="card" style="text-align:center; padding:40px;">Loading your form…</div>
+    <div id="content" style="display:none;">
+      <div class="apply-header">
+        <div class="eyebrow" id="orgName">Organization</div>
+        <h1 id="headline">Screening form</h1>
+        <p class="muted" id="subline"></p>
+      </div>
+
+      <div id="alreadyDone" class="card" style="display:none; text-align:center;">
+        <div style="font-size:16px; font-weight:700; margin-bottom:6px;">You've already submitted this form</div>
+        <div class="muted">Thank you — your recruiter will be in touch with next steps.</div>
+      </div>
+
+      <form id="applyForm" class="card" onsubmit="return submitForm(event)">
+        <div class="section-title" style="margin-top:0;">Your profile</div>
+        <div id="profileFields"></div>
+
+        <div class="section-title">Screening questions</div>
+        <div id="questionFields"></div>
+
+        <div id="formErr" class="error-msg"></div>
+        <button class="btn teal" type="submit" style="width:100%; margin-top:8px;">Submit</button>
+      </form>
+
+      <div id="successBox" class="card" style="display:none; text-align:center;">
+        <div style="font-size:16px; font-weight:700; margin-bottom:6px;">Thanks — your responses have been submitted!</div>
+        <div class="muted">Our HR team will review this along with your AI interview and get back to you.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/apply.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Sign in</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="auth-shell">
+    <div class="auth-side">
+      <div class="brand-eyebrow">Tech-Life AI HR</div>
+      <h1>One platform for every organization's hiring &amp; promotion decisions.</h1>
+      <p>Superadmin provisions each organization and switches on exactly the features it needs. HR and Management sign in to their own workspace, send candidates a screening link by email, WhatsApp or call, and review AI-assisted reports — with humans always making the final call.</p>
+      <div class="hint-box" style="max-width:420px; background:rgba(255,255,255,0.08); color:#e7ecf5;">
+        Demo Superadmin: <strong>superadmin@techlife.ai</strong> / <strong>SuperAdmin@123</strong><br/>
+        Demo Organization: code <strong>demo</strong> — HR: <strong>hr@demo.com</strong> / <strong>Demo@123</strong> · Management: <strong>management@demo.com</strong> / <strong>Demo@123</strong>
+      </div>
+    </div>
+    <div class="auth-main">
+      <div class="auth-box">
+        <div class="tabbar">
+          <button id="tabTenant" class="active" onclick="switchTab('tenant')">Organization Login</button>
+          <button id="tabSuper" onclick="switchTab('super')">Superadmin Login</button>
+        </div>
+
+        <div id="paneTenant">
+          <h2>Sign in to your workspace</h2>
+          <div class="sub">For HR and Management users of a registered organization.</div>
+          <div id="errTenant" class="error-msg"></div>
+          <form onsubmit="return doTenantLogin(event)">
+            <div class="field">
+              <label>Organization code</label>
+              <input id="tCode" placeholder="e.g. demo" required />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input id="tEmail" type="email" placeholder="you@company.com" required />
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input id="tPassword" type="password" placeholder="••••••••" required />
+            </div>
+            <button class="btn teal" style="width:100%;" type="submit">Sign in</button>
+          </form>
+        </div>
+
+        <div id="paneSuper" style="display:none;">
+          <h2>Superadmin console</h2>
+          <div class="sub">Manage organizations, users and feature access platform-wide.</div>
+          <div id="errSuper" class="error-msg"></div>
+          <form onsubmit="return doSuperLogin(event)">
+            <div class="field">
+              <label>Email</label>
+              <input id="sEmail" type="email" placeholder="superadmin@techlife.ai" required />
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input id="sPassword" type="password" placeholder="••••••••" required />
+            </div>
+            <button class="btn gold" style="width:100%;" type="submit">Sign in</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    function switchTab(which) {
+      document.getElementById("tabTenant").classList.toggle("active", which === "tenant");
+      document.getElementById("tabSuper").classList.toggle("active", which === "super");
+      document.getElementById("paneTenant").style.display = which === "tenant" ? "block" : "none";
+      document.getElementById("paneSuper").style.display = which === "super" ? "block" : "none";
+    }
+
+    async function doTenantLogin(e) {
+      e.preventDefault();
+      const errEl = document.getElementById("errTenant");
+      errEl.classList.remove("show");
+      try {
+        const data = await API.post("/api/auth/login/tenant", {
+          tenantCode: document.getElementById("tCode").value.trim(),
+          email: document.getElementById("tEmail").value.trim(),
+          password: document.getElementById("tPassword").value,
+        });
+        API.setToken(data.token);
+        API.setUser(data.user);
+        API.setTenant(data.tenant);
+        window.location.href = "/dashboard.html";
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.add("show");
+      }
+      return false;
+    }
+
+    async function doSuperLogin(e) {
+      e.preventDefault();
+      const errEl = document.getElementById("errSuper");
+      errEl.classList.remove("show");
+      try {
+        const data = await API.post("/api/auth/login/superadmin", {
+          email: document.getElementById("sEmail").value.trim(),
+          password: document.getElementById("sPassword").value,
+        });
+        API.setToken(data.token);
+        API.setUser(data.user);
+        window.location.href = "/superadmin.html";
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.add("show");
+      }
+      return false;
+    }
+
+    // If already logged in, bounce straight to the right console.
+    (function () {
+      const u = API.getUser();
+      if (API.token() && u) {
+        window.location.href = u.role === "superadmin" ? "/superadmin.html" : "/dashboard.html";
+      }
+    })();
+  </script>
+</body>
+</html>

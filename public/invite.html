@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Your Invite</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="apply-shell">
+    <div id="loading" class="card" style="text-align:center; padding:40px;">Loading your invite…</div>
+
+    <div id="content" style="display:none;">
+      <div class="apply-header">
+        <div class="eyebrow" id="orgName">Organization</div>
+        <h1 id="headline">You're invited</h1>
+        <p class="muted" id="subline"></p>
+      </div>
+
+      <div class="card" id="acceptCard" style="text-align:center;">
+        <p style="margin-top:0;">Tap below to accept your invite and get started. Depending on your role, you'll either fill a short pre-test first or go straight into your screening conversation.</p>
+        <div id="inviteErr" class="error-msg"></div>
+        <button class="btn teal" style="width:100%;" onclick="acceptInvite()">Accept invite &amp; continue</button>
+      </div>
+
+      <div class="card" id="alreadyCard" style="display:none; text-align:center;">
+        <div style="font-weight:700; margin-bottom:6px;">You've already gotten started here</div>
+        <div class="muted" id="alreadyText"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    const TOKEN = new URLSearchParams(window.location.search).get("token");
+
+    (async function init() {
+      if (!TOKEN) { document.getElementById("loading").textContent = "This link is missing a token."; return; }
+      try {
+        const res = await fetch(`/api/public/invite/${TOKEN}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Unable to load invite");
+
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("content").style.display = "block";
+        document.getElementById("orgName").textContent = data.tenantName;
+        document.getElementById("headline").textContent = `Hi ${data.candidate.name}!`;
+        document.getElementById("subline").textContent = data.candidate.appliedRole
+          ? `Regarding your ${data.candidate.appliedRole} ${data.candidate.caseType === "promotion" ? "promotion review" : "application"}`
+          : "";
+
+        if (data.alreadyAccepted) {
+          document.getElementById("acceptCard").style.display = "none";
+          document.getElementById("alreadyCard").style.display = "block";
+          if (data.session) {
+            document.getElementById("alreadyText").textContent = "You already have an interview in progress or scheduled.";
+            const btn = document.createElement("button");
+            btn.className = "btn teal";
+            btn.style.marginTop = "14px";
+            btn.textContent = "Go to my interview room";
+            btn.onclick = () => window.location.href = `/interview-room.html?token=${TOKEN}&role=candidate`;
+            document.getElementById("alreadyCard").appendChild(btn);
+          } else {
+            document.getElementById("alreadyText").textContent = "Please continue from the link most recently sent to you, or contact HR.";
+          }
+        }
+      } catch (e) {
+        document.getElementById("loading").textContent = e.message;
+      }
+    })();
+
+    async function acceptInvite() {
+      const errEl = document.getElementById("inviteErr");
+      errEl.classList.remove("show");
+      try {
+        const res = await fetch(`/api/public/invite/${TOKEN}/accept`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Unable to accept invite");
+
+        if (data.next === "pretest") {
+          window.location.href = `/apply.html?token=${TOKEN}`;
+        } else {
+          window.location.href = `/interview-room.html?token=${TOKEN}&role=candidate`;
+        }
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.add("show");
+      }
+    }
+  </script>
+</body>
+</html>

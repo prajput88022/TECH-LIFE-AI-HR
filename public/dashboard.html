@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Workspace</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="brand">Tech-Life <span>AI HR</span></div>
+    <div class="role-tag" id="tenantTag">—</div>
+
+    <button class="nav-item active" data-view="reports" onclick="showView('reports')">Reports &amp; Activity</button>
+    <button class="nav-item" data-view="candidates" onclick="showView('candidates')">Candidates</button>
+    <button class="nav-item" data-view="interviews" onclick="showView('interviews')">Interviews</button>
+    <button class="nav-item" data-view="features" onclick="showView('features')">My Features</button>
+
+    <div class="sidebar-footer">
+      <div class="who-box">
+        <div class="flex between" style="margin-bottom:6px;">
+          <span style="font-size:11.5px; font-weight:700; text-transform:uppercase; color:#9fb0c9;">My availability</span>
+          <label class="switch"><input type="checkbox" id="availabilityToggle" onchange="toggleAvailability()"/><span class="slider"></span></label>
+        </div>
+        <div class="nm" id="whoName">—</div>
+        <div class="em" id="whoEmail">—</div>
+      </div>
+      <button class="btn secondary" style="width:100%;" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- INTERVIEWS -->
+    <div id="view-interviews" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Interviews</h1>
+          <p>Sessions are auto-scheduled as human-led (if you're available) or AI-led (if not). Join anytime to take over live.</p>
+        </div>
+      </div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Candidate</th><th>Mode</th><th>Status</th><th>Assigned</th><th>Scheduled</th><th></th></tr></thead>
+            <tbody id="interviewsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-reports">
+      <div class="page-head">
+        <div>
+          <h1>Reports &amp; activity</h1>
+          <p>Your organization's pipeline performance and recent activity.</p>
+        </div>
+      </div>
+      <div id="reportsDisabledNote" style="display:none;" class="card">This feature is not enabled for your organization. Ask your Superadmin to enable <strong>Reports &amp; Activity Dashboard</strong>.</div>
+      <div id="reportsContent">
+        <div class="grid cols-4" id="pipelineStats"></div>
+        <div class="section-title">Your organization's activity</div>
+        <div class="card table-card">
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>When</th><th>User</th><th>Role</th><th>Action</th><th>Details</th></tr></thead>
+              <tbody id="activityBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CANDIDATES -->
+    <div id="view-candidates" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Candidates</h1>
+          <p>Add a candidate, then send them their screening form / interview link by email, WhatsApp or call.</p>
+        </div>
+        <button class="btn teal" id="addCandidateBtn" onclick="openAddCandidate()">+ Add candidate</button>
+      </div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Name</th><th>Applied role</th><th>Industry / Level</th><th>Status</th><th>Added</th><th></th></tr></thead>
+            <tbody id="candidatesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- FEATURES -->
+    <div id="view-features" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>My organization's features</h1>
+          <p>These are switched on or off by your Superadmin.</p>
+        </div>
+      </div>
+      <div class="card" id="myFeaturesList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: add candidate -->
+<div class="modal-backdrop" id="modalAddCandidate">
+  <div class="modal">
+    <h3>Add candidate</h3>
+    <div class="sub">The screening form will automatically match this industry and level.</div>
+    <div id="errAddCandidate" class="error-msg"></div>
+    <div class="field"><label>Case type</label>
+      <select id="cCaseType">
+        <option value="screening">New candidate screening</option>
+        <option value="promotion">Existing employee promotion review</option>
+      </select>
+    </div>
+    <div class="field"><label>Full name</label><input id="cName" /></div>
+    <div class="grid cols-2">
+      <div class="field"><label>Email</label><input id="cEmail" type="email" /></div>
+      <div class="field"><label>Phone (with country code)</label><input id="cPhone" placeholder="+91XXXXXXXXXX" /></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="field"><label>Industry</label>
+        <select id="cIndustry"></select>
+      </div>
+      <div class="field"><label>Level</label>
+        <select id="cLevel"></select>
+      </div>
+    </div>
+    <div class="field"><label>Applied role (optional)</label><input id="cRole" placeholder="e.g. Backend Engineer" /></div>
+    <div class="flex end">
+      <button class="btn secondary" onclick="closeModal('modalAddCandidate')">Cancel</button>
+      <button class="btn teal" onclick="submitAddCandidate()">Add candidate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: candidate detail / send link -->
+<div class="modal-backdrop" id="modalCandidate">
+  <div class="modal" style="width:540px;">
+    <h3 id="candTitle">Candidate</h3>
+    <div class="sub" id="candSub"></div>
+
+    <div class="section-title" style="margin-top:6px;">Send screening link</div>
+    <div class="flex wrap">
+      <button class="btn teal sm" onclick="sendLink('email')">Send by Email</button>
+      <button class="btn teal sm" onclick="sendLink('whatsapp')">Send by WhatsApp</button>
+      <button class="btn teal sm" onclick="sendLink('call')">Trigger AI Call</button>
+    </div>
+    <div id="lastLinkBox" style="margin-top:10px;"></div>
+
+    <div class="section-title">Interview session</div>
+    <div id="candSession" class="muted" style="font-size:13px;"></div>
+
+    <div id="kpiSection" style="display:none;">
+      <div class="section-title">KPI &amp; promotion-readiness</div>
+      <div id="readinessBox" style="margin-bottom:10px;"></div>
+      <div id="kpiRecordsList" class="muted" style="font-size:13px; margin-bottom:10px;"></div>
+
+      <div class="grid cols-2">
+        <div class="field"><label>Interview score (0-100)</label><input id="kpiInterviewScore" type="number" min="0" max="100" /></div>
+        <div class="field"><label>Pre-test score (0-100)</label><input id="kpiPretestScore" type="number" min="0" max="100" /></div>
+      </div>
+      <button class="btn secondary sm" onclick="saveManualScores()">Save scores</button>
+
+      <div class="section-title" style="font-size:14px;">Import KPI period</div>
+      <div class="field"><label>Period label (e.g. "Q1 2026")</label><input id="kpiPeriod" placeholder="Q1 2026" /></div>
+      <div id="kpiMetricRows"></div>
+      <button class="btn secondary sm" onclick="addMetricRow()">+ Add metric</button>
+      <button class="btn teal sm" onclick="submitKpiRecord()">Import KPI record</button>
+      <div id="kpiErr" class="error-msg" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="section-title">Notification history</div>
+    <div id="candNotifications" class="muted" style="font-size:13px;"></div>
+
+    <div class="section-title">Form submission</div>
+    <div id="candSubmission" class="muted" style="font-size:13px;"></div>
+
+    <div class="flex end" style="margin-top:16px;">
+      <button class="btn secondary" onclick="closeModal('modalCandidate')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/dashboard.js"></script>
+</body>
+</html>
