@@ -24,4 +24,21 @@ router.put("/weights", async (req, res) => {
   res.json({ weights });
 });
 
+// Optional minimum pre-test score below which a candidate is auto-screened-out right after
+// submitting their pre-test, before any interview is scheduled.
+router.get("/pretest-threshold", async (req, res) => {
+  const tenantId = scopeTenantId(req) || req.user.tenantId;
+  if (!tenantId) return res.status(400).json({ error: "tenantId is required" });
+  res.json({ threshold: await scoring.getPretestThreshold(tenantId) });
+});
+
+router.put("/pretest-threshold", async (req, res) => {
+  const tenantId = scopeTenantId(req) || req.user.tenantId;
+  if (!tenantId) return res.status(400).json({ error: "tenantId is required" });
+  const { enabled, minScore } = req.body || {};
+  const threshold = await scoring.setPretestThreshold(tenantId, { enabled, minScore });
+  await activity.log({ tenantId, userId: req.user.id, actorName: req.user.name, role: req.user.role, action: "scoring.threshold_updated", details: `Auto-screen threshold ${enabled ? "enabled" : "disabled"} at ${minScore}` });
+  res.json({ threshold });
+});
+
 module.exports = router;

@@ -61,6 +61,20 @@
             <button class="btn gold" style="width:100%;" type="submit">Sign in</button>
           </form>
         </div>
+
+        <div id="paneMfa" style="display:none;">
+          <h2>Two-factor verification</h2>
+          <div class="sub">Enter the 6-digit code from your authenticator app.</div>
+          <div id="errMfa" class="error-msg"></div>
+          <form onsubmit="return doMfaVerify(event)">
+            <div class="field">
+              <label>Authentication code</label>
+              <input id="mfaCode" placeholder="000000" maxlength="6" inputmode="numeric" required />
+            </div>
+            <button class="btn teal" style="width:100%;" type="submit">Verify &amp; sign in</button>
+          </form>
+          <button class="btn secondary" style="width:100%; margin-top:10px;" onclick="cancelMfa()">Back</button>
+        </div>
       </div>
     </div>
   </div>
@@ -74,6 +88,22 @@
       document.getElementById("paneSuper").style.display = which === "super" ? "block" : "none";
     }
 
+    let pendingMfa = null; // { challengeToken, tenant, destination }
+
+    function showMfaPane() {
+      document.getElementById("paneTenant").style.display = "none";
+      document.getElementById("paneSuper").style.display = "none";
+      document.getElementById("paneMfa").style.display = "block";
+      document.getElementById("errMfa").classList.remove("show");
+      document.getElementById("mfaCode").value = "";
+    }
+
+    function cancelMfa() {
+      pendingMfa = null;
+      document.getElementById("paneMfa").style.display = "none";
+      switchTab("tenant");
+    }
+
     async function doTenantLogin(e) {
       e.preventDefault();
       const errEl = document.getElementById("errTenant");
@@ -84,6 +114,11 @@
           email: document.getElementById("tEmail").value.trim(),
           password: document.getElementById("tPassword").value,
         });
+        if (data.mfaRequired) {
+          pendingMfa = { challengeToken: data.mfaChallengeToken, tenant: data.tenant, destination: "/dashboard.html" };
+          showMfaPane();
+          return false;
+        }
         API.setToken(data.token);
         API.setUser(data.user);
         API.setTenant(data.tenant);
@@ -104,9 +139,36 @@
           email: document.getElementById("sEmail").value.trim(),
           password: document.getElementById("sPassword").value,
         });
+        if (data.mfaRequired) {
+          pendingMfa = { challengeToken: data.mfaChallengeToken, tenant: null, destination: "/superadmin.html" };
+          showMfaPane();
+          return false;
+        }
         API.setToken(data.token);
         API.setUser(data.user);
         window.location.href = "/superadmin.html";
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.add("show");
+      }
+      return false;
+    }
+
+    async function doMfaVerify(e) {
+      e.preventDefault();
+      const errEl = document.getElementById("errMfa");
+      errEl.classList.remove("show");
+      if (!pendingMfa) { errEl.textContent = "Session expired, please log in again."; errEl.classList.add("show"); return false; }
+      try {
+        const data = await API.post("/api/auth/login/mfa", {
+          mfaChallengeToken: pendingMfa.challengeToken,
+          token: document.getElementById("mfaCode").value.trim(),
+          tenant: pendingMfa.tenant,
+        });
+        API.setToken(data.token);
+        API.setUser(data.user);
+        if (data.tenant) API.setTenant(data.tenant);
+        window.location.href = pendingMfa.destination;
       } catch (err) {
         errEl.textContent = err.message;
         errEl.classList.add("show");

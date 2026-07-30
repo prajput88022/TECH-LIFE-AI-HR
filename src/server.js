@@ -15,6 +15,10 @@ const interviewRoutes = require("./routes/interviewRoutes");
 const metaRoutes = require("./routes/metaRoutes");
 const kpiRoutes = require("./routes/kpiRoutes");
 const scoringRoutes = require("./routes/scoringRoutes");
+const resumeRoutes = require("./routes/resumeRoutes");
+const promotionRoutes = require("./routes/promotionRoutes");
+const complianceRoutes = require("./routes/complianceRoutes");
+const mfaRoutes = require("./routes/mfaRoutes");
 const { ensureSeeded } = require("./seed");
 const db = require("./db");
 
@@ -31,7 +35,11 @@ app.use("/api/me", meRoutes);
 app.use("/api/interviews", interviewRoutes);
 app.use("/api/meta", metaRoutes);
 app.use("/api/candidates", kpiRoutes);
+app.use("/api/candidates", resumeRoutes);
+app.use("/api/candidates", promotionRoutes);
 app.use("/api/scoring", scoringRoutes);
+app.use("/api/reports", complianceRoutes);
+app.use("/api/me/mfa", mfaRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true, service: "tech-life-ai-hr", time: new Date().toISOString(), db: db.info() }));
 

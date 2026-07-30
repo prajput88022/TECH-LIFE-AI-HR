@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech-Life AI HR — Reports</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .filters-card { display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; align-items:end; }
+  @media (max-width: 1100px) { .filters-card { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .filters-card { grid-template-columns: repeat(2, 1fr); } }
+  .filters-card .field { margin-bottom:0; }
+  .report-tabs { display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
+  .report-tabs button { padding:8px 14px; border-radius:8px; border:1px solid var(--border); background:#fff; font-size:13px; font-weight:600; color:var(--text-dim); }
+  .report-tabs button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .score-chip { font-weight:700; }
+  .sentiment-positive { color:var(--success); }
+  .sentiment-negative { color:var(--danger); }
+  .sentiment-neutral { color:var(--text-dim); }
+  .anger-badge { background:var(--danger-bg); color:var(--danger); padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="brand">Tech-Life <span>AI HR</span></div>
+    <div class="role-tag" id="tenantTag">Reports</div>
+
+    <button class="nav-item" onclick="window.location.href='/dashboard.html'">&larr; Back to workspace</button>
+    <button class="nav-item active">Reports &amp; Approvals</button>
+
+    <div class="sidebar-footer">
+      <div class="who-box">
+        <div class="nm" id="whoName">—</div>
+        <div class="em" id="whoEmail">—</div>
+      </div>
+      <button class="btn secondary" style="width:100%;" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="main" style="max-width:1300px;">
+    <div class="page-head">
+      <div>
+        <h1>Reports &amp; Approvals</h1>
+        <p>Search and filter every candidate/employee case, review pending approvals, and drill into call analysis.</p>
+      </div>
+      <button class="btn secondary" onclick="exportCsv()">Export CSV</button>
+    </div>
+
+    <div class="card filters-card" style="margin-bottom:18px;">
+      <div class="field"><label>From date</label><input type="date" id="fDateFrom" /></div>
+      <div class="field"><label>To date</label><input type="date" id="fDateTo" /></div>
+      <div class="field"><label>Industry</label><select id="fIndustry"><option value="">All</option></select></div>
+      <div class="field"><label>Level</label><select id="fLevel"><option value="">All</option></select></div>
+      <div class="field"><label>Case type</label>
+        <select id="fCaseType"><option value="">All</option><option value="screening">Screening</option><option value="promotion">Promotion</option></select>
+      </div>
+      <div class="field"><label>Status</label>
+        <select id="fStatus">
+          <option value="">All</option>
+          <option value="created">Created</option>
+          <option value="link_sent">Link sent</option>
+          <option value="invite_accepted">Invite accepted</option>
+          <option value="form_submitted">Form submitted</option>
+          <option value="auto_screened_out">Auto screened out</option>
+          <option value="interview_scheduled">Interview scheduled</option>
+          <option value="interview_completed">Interview completed</option>
+          <option value="selected">Selected</option>
+          <option value="on_hold">On hold</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="field"><label>Interview mode</label>
+        <select id="fMode"><option value="">All</option><option value="ai">AI-conducted</option><option value="human">Human-conducted</option><option value="human_pending">Queued</option></select>
+      </div>
+      <div class="field"><label>Decision</label>
+        <select id="fDecision"><option value="">All</option><option value="selected">Selected</option><option value="hold">Hold</option><option value="rejected">Rejected</option></select>
+      </div>
+      <div class="field"><label>Sentiment</label>
+        <select id="fSentiment"><option value="">All</option><option value="positive">Positive</option><option value="neutral">Neutral</option><option value="negative">Negative</option></select>
+      </div>
+      <div class="field"><label>&nbsp;</label><label class="opt-row" style="margin:0;"><input type="checkbox" id="fAngerOnly" style="width:auto;"/> Anger flagged only</label></div>
+      <div class="field" style="grid-column: span 2;"><label>Search (name, role, email)</label><input id="fSearch" placeholder="Search…" /></div>
+      <div class="field"><button class="btn teal" style="width:100%;" onclick="applyFilters()">Apply filters</button></div>
+    </div>
+
+    <div class="report-tabs">
+      <button class="active" data-tab="cases" onclick="showTab('cases')">Case List</button>
+      <button data-tab="approvals" onclick="showTab('approvals')">Pending Approvals</button>
+      <button data-tab="department" onclick="showTab('department')">Department Analytics</button>
+      <button data-tab="webhooks" onclick="showTab('webhooks')">Webhook Delivery Log</button>
+    </div>
+
+    <!-- CASE LIST -->
+    <div id="tab-cases">
+      <div class="grid cols-4" id="summaryStats" style="margin-bottom:18px;"></div>
+      <div class="card table-card">
+        <div class="table-head"><strong id="caseCount">0 cases</strong></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th>Candidate</th><th>Industry / Level</th><th>Case</th><th>Status</th><th>Mode</th>
+              <th>Sentiment</th><th>Readiness</th><th>Decision</th><th>Added</th><th></th>
+            </tr></thead>
+            <tbody id="casesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- PENDING APPROVALS -->
+    <div id="tab-approvals" style="display:none;">
+      <div class="card table-card">
+        <div class="table-head"><strong id="approvalCount">0 pending</strong></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Candidate</th><th>Level</th><th>Mode</th><th>Sentiment</th><th>Completed</th><th>Approval needed from</th><th></th></tr></thead>
+            <tbody id="approvalsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEPARTMENT ANALYTICS -->
+    <div id="tab-department" style="display:none;">
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Industry</th><th>Candidates</th><th>Avg. readiness score</th></tr></thead>
+            <tbody id="deptBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- WEBHOOKS -->
+    <div id="tab-webhooks" style="display:none;">
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>When</th><th>Event</th><th>Target URLs</th><th>Result</th></tr></thead>
+            <tbody id="webhooksBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick decision modal from the case list / approvals list -->
+<div class="modal-backdrop" id="modalQuickDecision">
+  <div class="modal">
+    <h3 id="qdTitle">Record decision</h3>
+    <div class="sub">This updates the case immediately.</div>
+    <div class="field"><label>Decision</label>
+      <select id="qdDecision"><option value="selected">Select / Promote</option><option value="hold">Hold</option><option value="rejected">Reject</option></select>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="qdNotes" rows="3"></textarea></div>
+    <label class="opt-row"><input type="checkbox" id="qdNotify" checked style="width:auto;"/> Email the result to the candidate</label>
+    <div id="qdErr" class="error-msg" style="margin-top:8px;"></div>
+    <div class="flex end" style="margin-top:12px;">
+      <button class="btn secondary" onclick="closeModal('modalQuickDecision')">Cancel</button>
+      <button class="btn teal" onclick="submitQuickDecision()">Save decision</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/reports.js"></script>
+</body>
+</html>

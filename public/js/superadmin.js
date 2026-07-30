@@ -260,64 +260,41 @@ async function loadIntegrations() {
 }
 
 function renderIntegrationCard(key, cat) {
-  const cfg = cat.config || {};
-  const currentVendor = cfg.vendor || cat.defaultVendor;
+  const testable = ["mail_server", "whatsapp", "telephony", "webhooks", "team_chat", "chatwoot"].includes(key);
   return `
     <div class="card" id="intcard-${key}">
       <div class="flex between">
         <div style="font-weight:700;">${escapeHtml(cat.label)}</div>
-        <label class="switch"><input type="checkbox" id="int-enabled-${key}" ${cfg.enabled ? "checked" : ""}/><span class="slider"></span></label>
+        <span class="pill ${cat.configured ? "active" : "neutral"}">${cat.configured ? "Configured" : "Not configured"}</span>
       </div>
-      <div class="field" style="margin-top:12px;">
-        <label>Vendor</label>
-        <select id="int-vendor-${key}" onchange="renderIntegrationFields('${key}')">
-          ${Object.keys(cat.vendors).map((v) => `<option value="${v}" ${v === currentVendor ? "selected" : ""}>${vendorLabel(v)}</option>`).join("")}
-        </select>
+      <div style="margin-top:8px; font-size:13px;">Active vendor: <strong>${escapeHtml(vendorLabel(cat.vendor))}</strong></div>
+      ${cat.note ? `<div class="muted" style="font-size:12px; margin-top:6px;">${escapeHtml(cat.note)}</div>` : ""}
+      <div class="muted" style="font-size:11.5px; margin-top:10px;">
+        Set in <code>.env</code>: ${cat.envVars.map((v) => `<code>${escapeHtml(v)}</code>`).join(", ")}
       </div>
-      <div id="int-fields-${key}"></div>
-      <button class="btn teal sm" style="margin-top:10px;" onclick="saveIntegration('${key}')">Save</button>
+      ${testable ? `
+        <button class="btn secondary sm" style="margin-top:10px;" onclick="testIntegration('${key}')">Test connection</button>
+        <div id="test-result-${key}" style="margin-top:8px;"></div>
+      ` : ""}
     </div>
   `;
 }
 
-function vendorLabel(v) {
-  return v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function renderIntegrationFields(key) {
-  API.get("/api/superadmin/integrations").then((data) => {
-    const cat = data.categories[key];
-    const vendor = document.getElementById(`int-vendor-${key}`).value;
-    const fields = (cat.vendors[vendor] || {}).fields || [];
-    const cfg = cat.config || {};
-    const box = document.getElementById(`int-fields-${key}`);
-    if (!fields.length) {
-      box.innerHTML = vendor.includes("browser") || vendor === "builtin_webrtc" || vendor === "builtin_rules"
-        ? `<div class="muted" style="font-size:12.5px; margin-top:8px;">Works out of the box — no credentials needed.</div>`
-        : vendor === "none" ? `<div class="muted" style="font-size:12.5px; margin-top:8px;">Disabled — no vendor selected.</div>` : "";
-      return;
-    }
-    box.innerHTML = fields.map((f) => `
-      <div class="field" style="margin-top:10px;">
-        <label>${FIELD_LABELS[f] || f}</label>
-        <input id="int-field-${key}-${f}" type="${f.toLowerCase().includes("secret") || f.toLowerCase().includes("pass") || f === "apiKey" || f === "authToken" || f === "token" ? "password" : "text"}" value="${cfg.vendor === vendor && cfg[f] ? escapeHtml(cfg[f]) : ""}" />
-      </div>
-    `).join("");
-  });
-}
-
-async function saveIntegration(key) {
-  const vendor = document.getElementById(`int-vendor-${key}`).value;
-  const enabled = document.getElementById(`int-enabled-${key}`).checked;
-  const payload = { vendor, enabled };
-  document.querySelectorAll(`#int-fields-${key} input`).forEach((el) => {
-    const fieldName = el.id.replace(`int-field-${key}-`, "");
-    payload[fieldName] = el.type === "checkbox" ? el.checked : el.value;
-  });
+async function testIntegration(key) {
+  const box = document.getElementById(`test-result-${key}`);
+  box.innerHTML = `<span class="muted" style="font-size:12px;">Testing…</span>`;
   try {
-    await API.put(`/api/superadmin/integrations/${key}`, payload);
-    toast(`${key.replace(/_/g, " ")} integration saved`);
-  } catch (e) { toast(e.message, true); }
+    const res = await fetch(`/api/superadmin/integrations/${key}/test`, { method: "POST", headers: { Authorization: `Bearer ${API.token()}` } });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || "Test failed");
+    box.innerHTML = `<div class="error-msg show" style="background:var(--success-bg); color:var(--success);">✓ ${escapeHtml(data.detail || "Connection succeeded")}</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="error-msg show">✗ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function vendorLabel(v) {
+  return String(v).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ---------------- Industries ----------------

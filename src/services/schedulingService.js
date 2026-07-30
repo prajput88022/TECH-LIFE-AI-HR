@@ -8,6 +8,7 @@
 const crypto = require("crypto");
 const db = require("../db");
 const activity = require("../services/activityService");
+const webhooks = require("../services/webhookService");
 
 async function pickAvailableHuman(tenantId) {
   const users = await db.all("users", (u) => u.tenantId === tenantId && ["hr", "management"].includes(u.role) && u.status === "active");
@@ -55,6 +56,7 @@ async function scheduleInterview(candidate) {
         ? `${human.name} assigned to interview ${candidate.name}`
         : `${candidate.name}'s interview is queued — no HR/Management available and AI interviewing is off`,
   });
+  await webhooks.dispatch("interview.scheduled", candidate.tenantId, { candidateId: candidate.id, sessionId: session.id, mode, roomId: session.roomId });
 
   return session;
 }

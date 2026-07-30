@@ -1,131 +1,97 @@
-// Central place to configure every pluggable vendor the platform talks to.
-// Superadmin edits these from the Integrations config page. Each category has
-// exactly one active config doc (type: 'integrationConfig', category: <key>).
-//
-// Secrets (apiKey/secret/password) are stored as-is in CouchDB (encrypt at rest
-// in production - see README "Recommendations"), and are redacted before ever
-// being sent back to the browser.
+// Integration STATUS reporting. As of this version, no credentials are stored in CouchDB —
+// every real secret lives only in environment variables (see .env.sample). This module just
+// reports, for the Superadmin Integrations screen, which vendor is active per category and
+// whether it's fully configured (i.e. its required env vars are present) — read-only.
 
-const db = require("../db");
+function present(name) { return !!(process.env[name] && process.env[name].trim()); }
 
-const CATEGORY_KEYS = ["llm", "stt", "tts", "bot_engine", "telephony", "meeting", "mail_server"];
+function buildStatus() {
+  const telephonyVendor = process.env.TELEPHONY_VENDOR || "twilio";
+  const telephonyRequirements = {
+    twilio: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"],
+    asterisk: ["ASTERISK_AMI_HOST", "ASTERISK_AMI_USERNAME", "ASTERISK_AMI_SECRET"],
+    freeswitch: ["FREESWITCH_ESL_HOST", "FREESWITCH_ESL_PASSWORD"],
+  }[telephonyVendor] || [];
 
-// Describes each category: which vendors are selectable and which fields each vendor needs.
-const CATEGORY_SCHEMA = {
-  llm: {
-    label: "LLM (conversation intelligence)",
-    vendors: {
-      anthropic: { fields: ["apiKey", "model"] },
-      openai: { fields: ["apiKey", "model"] },
-      custom: { fields: ["baseUrl", "apiKey", "model"] },
-      none: { fields: [] },
+  return {
+    couchdb: {
+      label: "CouchDB (database)",
+      vendor: process.env.COUCHDB_URL || process.env.COUCHDB_HOST ? "real-couchdb" : "embedded-pouchdb",
+      configured: !!(process.env.COUCHDB_URL || process.env.COUCHDB_HOST),
+      envVars: ["COUCHDB_URL", "or COUCHDB_HOST/PORT/USER/PASSWORD/DBNAME"],
+      note: process.env.COUCHDB_URL || process.env.COUCHDB_HOST ? "Connected to a real CouchDB server." : "Running on the embedded local store — set COUCHDB_URL or COUCHDB_HOST for a real deployment.",
     },
-    defaultVendor: "none",
-  },
-  stt: {
-    label: "Speech-to-Text / ASR",
-    vendors: {
-      browser_webspeech: { fields: [] }, // works today, no keys needed - see public/js/interview-room.js
-      deepgram: { fields: ["apiKey", "model"] },
-      google_stt: { fields: ["apiKey", "projectId"] },
-      whisper_selfhosted: { fields: ["baseUrl"] },
-      custom: { fields: ["baseUrl", "apiKey"] },
+    mail_server: {
+      label: "Mail server (SMTP)",
+      vendor: "smtp",
+      configured: present("SMTP_HOST") && present("SMTP_USER"),
+      envVars: ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM_EMAIL"],
     },
-    defaultVendor: "browser_webspeech",
-  },
-  tts: {
-    label: "Text-to-Speech / Natural Voice",
-    vendors: {
-      browser_webspeech: { fields: [] },
-      elevenlabs: { fields: ["apiKey", "voiceId"] },
-      azure_tts: { fields: ["apiKey", "region", "voiceName"] },
-      google_tts: { fields: ["apiKey", "voiceName"] },
-      custom: { fields: ["baseUrl", "apiKey"] },
+    whatsapp: {
+      label: "WhatsApp (Meta Cloud API)",
+      vendor: "whatsapp_cloud_api",
+      configured: present("WHATSAPP_API_TOKEN") && present("WHATSAPP_PHONE_NUMBER_ID"),
+      envVars: ["WHATSAPP_API_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"],
     },
-    defaultVendor: "browser_webspeech",
-  },
-  bot_engine: {
-    label: "Conversation / Bot Engine",
-    vendors: {
-      builtin_rules: { fields: [] }, // ships working today - src/services/botEngine.js
-      rasa: { fields: ["baseUrl", "token"] },
-      dialogflow: { fields: ["apiKey", "projectId"] },
-      custom: { fields: ["baseUrl", "apiKey"] },
+    telephony: {
+      label: "Telephony / Outbound Calling",
+      vendor: telephonyVendor,
+      configured: telephonyRequirements.every(present),
+      envVars: ["TELEPHONY_VENDOR", ...telephonyRequirements],
     },
-    defaultVendor: "builtin_rules",
-  },
-  telephony: {
-    label: "Telephony / Outbound Calling",
-    vendors: {
-      asterisk: { fields: ["amiHost", "amiPort", "amiUser", "amiSecret"] },
-      freeswitch: { fields: ["eslHost", "eslPort", "eslPassword"] },
-      twilio: { fields: ["accountSid", "authToken", "fromNumber"] },
-      none: { fields: [] },
+    webhooks: {
+      label: "Outbound Webhooks",
+      vendor: "http-hmac",
+      configured: present("WEBHOOK_URLS") && present("WEBHOOK_SECRET"),
+      envVars: ["WEBHOOK_URLS", "WEBHOOK_SECRET"],
     },
-    defaultVendor: "none",
-  },
-  meeting: {
-    label: "Video Meeting / WebRTC",
-    vendors: {
-      builtin_webrtc: { fields: [] }, // ships working today - public/interview-room.html
-      google_meet: { fields: ["clientId", "clientSecret"] },
-      ms_teams: { fields: ["tenantId", "clientId", "clientSecret"] },
-      custom: { fields: ["baseUrl", "apiKey"] },
+    meeting: {
+      label: "Video Meeting",
+      vendor: process.env.MEETING_VENDOR || (present("MATTERMOST_URL") ? "mattermost" : "builtin_webrtc"),
+      configured: (process.env.MEETING_VENDOR || (present("MATTERMOST_URL") ? "mattermost" : "builtin_webrtc")) === "builtin_webrtc"
+        ? true
+        : present("MATTERMOST_URL") && present("MATTERMOST_TEAM") && present("MATTERMOST_CHANNEL_NAME"),
+      envVars: ["MEETING_VENDOR", "MATTERMOST_URL", "MATTERMOST_TEAM", "MATTERMOST_CHANNEL_NAME"],
+      note: (process.env.MEETING_VENDOR || "builtin_webrtc") === "builtin_webrtc"
+        ? "Using the platform's own WebRTC room — works today with no setup."
+        : "Meeting links point to a Mattermost channel with Calls enabled on it.",
     },
-    defaultVendor: "builtin_webrtc",
-  },
-  mail_server: {
-    label: "Mail Server (SMTP)",
-    vendors: {
-      smtp: { fields: ["host", "port", "secure", "user", "pass", "fromAddress"] },
-      none: { fields: [] },
+    team_chat: {
+      label: "Team Chat Notifications (Mattermost)",
+      vendor: "mattermost_incoming_webhook",
+      configured: present("MATTERMOST_WEBHOOK_URL"),
+      envVars: ["MATTERMOST_WEBHOOK_URL", "MATTERMOST_CHANNEL"],
+      note: "Posts real-time alerts (anger detected on a call, a case needs Management approval) to an HR/ops Mattermost channel via a real Incoming Webhook.",
     },
-    defaultVendor: "none",
-  },
-};
-
-const SECRET_FIELDS = ["apiKey", "secret", "token", "authToken", "amiSecret", "eslPassword", "clientSecret", "pass"];
-
-function redact(doc) {
-  if (!doc) return doc;
-  const copy = { ...doc };
-  SECRET_FIELDS.forEach((f) => {
-    if (copy[f]) copy[f] = "•".repeat(8);
-  });
-  return copy;
+    chatwoot: {
+      label: "Candidate Live Chat (Chatwoot)",
+      vendor: "chatwoot",
+      configured: present("CHATWOOT_URL") && present("CHATWOOT_API_TOKEN") && present("CHATWOOT_ACCOUNT_ID") && present("CHATWOOT_INBOX_ID"),
+      envVars: ["CHATWOOT_URL", "CHATWOOT_API_TOKEN", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID"],
+      note: "Message candidates through a real Chatwoot conversation (visible to your whole HR team in Chatwoot's own inbox) instead of/alongside email or WhatsApp.",
+    },
+    stt: {
+      label: "Speech-to-Text (ASR)",
+      vendor: process.env.STT_PROVIDER || "browser_webspeech",
+      configured: process.env.STT_PROVIDER ? present("STT_API_KEY") : true,
+      envVars: ["STT_PROVIDER", "STT_API_KEY"],
+      note: process.env.STT_PROVIDER ? undefined : "Using the browser's built-in Web Speech API — works today with no keys.",
+    },
+    tts: {
+      label: "Text-to-Speech (voice)",
+      vendor: process.env.TTS_PROVIDER || "browser_webspeech",
+      configured: process.env.TTS_PROVIDER ? present("TTS_API_KEY") : true,
+      envVars: ["TTS_PROVIDER", "TTS_API_KEY"],
+      note: process.env.TTS_PROVIDER ? undefined : "Using the browser's built-in Web Speech API — works today with no keys.",
+    },
+    llm: {
+      label: "LLM",
+      vendor: process.env.LLM_PROVIDER || "none",
+      configured: process.env.LLM_PROVIDER ? present("LLM_API_KEY") : false,
+      envVars: ["LLM_PROVIDER", "LLM_API_KEY"],
+      note: process.env.LLM_PROVIDER ? undefined : "Not configured — the platform uses its built-in rules-based question engine instead.",
+    },
+  };
 }
 
-async function getConfig(category) {
-  const doc = await db.find("integrationConfig", (c) => c.category === category);
-  if (doc) return doc;
-  const schema = CATEGORY_SCHEMA[category];
-  return { category, vendor: schema.defaultVendor, enabled: schema.defaultVendor !== "none" };
-}
-
-async function getAllConfigs() {
-  const out = {};
-  for (const key of CATEGORY_KEYS) {
-    const cfg = await getConfig(key);
-    out[key] = { ...CATEGORY_SCHEMA[key], config: redact(cfg) };
-  }
-  return out;
-}
-
-async function saveConfig(category, payload) {
-  const existing = await db.find("integrationConfig", (c) => c.category === category);
-  const clean = { category, vendor: payload.vendor, enabled: !!payload.enabled, updatedAt: new Date().toISOString() };
-  const schema = CATEGORY_SCHEMA[category];
-  const fields = (schema.vendors[payload.vendor] || {}).fields || [];
-  fields.forEach((f) => { clean[f] = payload[f] ?? (existing ? existing[f] : ""); });
-
-  if (existing) return db.update("integrationConfig", existing.id, clean);
-  return db.insert("integrationConfig", clean);
-}
-
-// Used internally by services (notifyService, interview engine) - returns the
-// *unredacted* live config so real credentials can be used to call the vendor.
-async function getConfigRaw(category) {
-  return getConfig(category);
-}
-
-module.exports = { CATEGORY_KEYS, CATEGORY_SCHEMA, getConfig, getAllConfigs, saveConfig, redact, getConfigRaw };
+module.exports = { buildStatus };

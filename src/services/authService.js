@@ -26,6 +26,21 @@ function signToken(user) {
   );
 }
 
+// Short-lived token issued after password check when MFA is enabled - proves the password
+// was already correct, without granting a full session until the TOTP code is also verified.
+function signMfaChallenge(user) {
+  return jwt.sign({ sub: user.id, mfaPending: true }, JWT_SECRET, { expiresIn: "5m" });
+}
+
+function verifyMfaChallenge(token) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload.mfaPending ? payload : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET);
@@ -34,4 +49,4 @@ function verifyToken(token) {
   }
 }
 
-module.exports = { hashPassword, verifyPassword, signToken, verifyToken };
+module.exports = { hashPassword, verifyPassword, signToken, verifyToken, signMfaChallenge, verifyMfaChallenge };

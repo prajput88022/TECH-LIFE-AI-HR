@@ -3,27 +3,35 @@
 //   ?session=<interviewSessionId>&role=hr                 (authenticated HR/Management)
 //
 // WebRTC is a simple 2-party mesh signaled over Socket.IO (no media touches the server).
-// The "AI interviewer" runs entirely in the candidate's browser using the Web Speech API
-// (speechSynthesis for the voice, SpeechRecognition for capturing spoken answers) — this is
-// the "browser_webspeech" vendor from the Integrations page; swap in Deepgram/ElevenLabs/etc.
-// by changing the vendor there and wiring src/services later without touching this UI.
+// The "AI interviewer" runs entirely in the candidate's browser using the Web Speech API.
+// Every call is locally recorded (mixed local+remote audio, plus local video) via
+// MediaRecorder and uploaded to the server for storage + later playback; the transcript is
+// separately run through sentiment/anger/diarization analysis (src/services/callAnalysisService.js).
 
 const params = new URLSearchParams(window.location.search);
 const ROLE = params.get("role") === "hr" ? "hr" : "candidate";
 const TOKEN = params.get("token");
 const SESSION_ID = params.get("session");
 
-let ROOM = null;         // { roomId, mode, questions, ... }
-let SESSION_META = null; // HR-only: { session, candidate }
+let ROOM = null;
+let SESSION_META = null;
 let socket = null;
 let pc = null;
 let localStream = null;
+let remoteStream = null;
 let myName = ROLE === "hr" ? (API.getUser() ? API.getUser().name : "HR") : "Candidate";
 
 let qIndex = 0;
 let recognizer = null;
 let aiPaused = false;
 let aiActive = false;
+
+// Recording
+let audioCtx = null;
+let mixDest = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingUploaded = false;
 
 (async function init() {
   try {
@@ -34,35 +42,65 @@ let aiActive = false;
       if (!res.ok) throw new Error(data.error || "Unable to load interview room");
       ROOM = data;
       myName = data.candidateName;
+      if (data.externalMeetingLink) {
+        const banner = document.getElementById("externalMeetingBanner");
+        banner.style.display = "block";
+        banner.innerHTML = `Your organization also uses a team meeting room for this interview: <a href="${data.externalMeetingLink}" target="_blank">${data.externalMeetingLink}</a>`;
+      }
+
+      document.getElementById("loading").style.display = "none";
+      if (!data.consentGiven) {
+        document.getElementById("consentOverlay").style.display = "flex";
+        return; // wait for giveConsent()
+      }
+      await enterRoom();
     } else {
       requireSession(["hr", "management", "superadmin"]);
       if (!SESSION_ID) throw new Error("Missing session id");
       const data = await API.get(`/api/interviews/${SESSION_ID}`);
       SESSION_META = data;
       ROOM = { roomId: data.session.roomId, mode: data.session.mode, aiPaused: data.session.aiPaused, candidateName: data.candidate.name };
+      document.getElementById("loading").style.display = "none";
+      await enterRoom();
       data.transcript.forEach((t) => appendTranscript(t.speaker, t.text, t.speakerName));
-    }
-
-    document.getElementById("loading").style.display = "none";
-    document.getElementById("room").style.display = "block";
-    document.getElementById("roomTitle").textContent = ROLE === "hr" ? `Interview: ${ROOM.candidateName}` : "Your screening conversation";
-    document.getElementById("roomSub").textContent = ROLE === "hr" ? "You are joining as the human interviewer." : "Sit back, relax, and answer naturally — this may be AI-assisted.";
-    updateModeBadge();
-
-    if (ROLE === "hr") document.getElementById("hrControls").style.display = "block";
-
-    await setupMedia();
-    setupSocket();
-
-    if (ROLE === "candidate" && ROOM.mode === "ai") {
-      startAIInterview();
-    } else if (ROLE === "candidate") {
-      setStatus("Waiting for your interviewer to join…", false);
+      if (data.session.callAnalysis) renderAnalysis(data.session.callAnalysis);
     }
   } catch (e) {
     document.getElementById("loading").textContent = e.message;
   }
 })();
+
+async function giveConsent() {
+  const errEl = document.getElementById("consentErr");
+  errEl.classList.remove("show");
+  try {
+    await fetch(`/api/public/room/${TOKEN}/consent`, { method: "POST" });
+    document.getElementById("consentOverlay").style.display = "none";
+    await enterRoom();
+  } catch (e) {
+    errEl.textContent = "Could not record your consent — please try again.";
+    errEl.classList.add("show");
+  }
+}
+
+async function enterRoom() {
+  document.getElementById("room").style.display = "block";
+  document.getElementById("roomTitle").textContent = ROLE === "hr" ? `Interview: ${ROOM.candidateName}` : "Your screening conversation";
+  document.getElementById("roomSub").textContent = ROLE === "hr" ? "You are joining as the human interviewer." : "Sit back, relax, and answer naturally — this may be AI-assisted.";
+  updateModeBadge();
+
+  if (ROLE === "hr") document.getElementById("hrControls").style.display = "block";
+
+  await setupMedia();
+  setupSocket();
+  buildDialpad();
+
+  if (ROLE === "candidate" && ROOM.mode === "ai") {
+    startAIInterview();
+  } else if (ROLE === "candidate") {
+    setStatus("Waiting for your interviewer to join…", false);
+  }
+}
 
 function updateModeBadge() {
   const badge = document.getElementById("modeBadge");
@@ -91,6 +129,7 @@ async function setupMedia() {
       document.getElementById("localLabel").textContent = "You (no mic/camera access)";
     }
   }
+  startRecording();
 }
 
 function ensurePeerConnection() {
@@ -101,9 +140,11 @@ function ensurePeerConnection() {
     if (e.candidate) socket.emit("signal", { roomId: ROOM.roomId, data: { candidate: e.candidate } });
   };
   pc.ontrack = (e) => {
-    document.getElementById("remoteVideo").srcObject = e.streams[0];
+    remoteStream = e.streams[0];
+    document.getElementById("remoteVideo").srcObject = remoteStream;
     document.getElementById("aiTile").style.display = "none";
     document.getElementById("remoteLabel").textContent = ROLE === "hr" ? ROOM.candidateName : (ROOM.assignedUserName || "Interviewer");
+    attachRemoteToRecording(remoteStream);
   };
   return pc;
 }
@@ -115,14 +156,10 @@ function setupSocket() {
   });
 
   socket.on("peer-joined", async ({ role }) => {
-    // The peer already in the room initiates the offer when someone new joins.
     const conn = ensurePeerConnection();
     const offer = await conn.createOffer();
     await conn.setLocalDescription(offer);
     socket.emit("signal", { roomId: ROOM.roomId, data: { sdp: offer } });
-    if (ROLE === "hr" && ROOM.mode === "ai") {
-      document.getElementById("aiTile").style.display = "none"; // candidate's real video will arrive
-    }
   });
 
   socket.on("signal", async ({ data }) => {
@@ -153,6 +190,10 @@ function setupSocket() {
   });
 
   socket.on("live-caption", ({ speaker, text }) => appendTranscript(speaker, text));
+  socket.on("dtmf-pressed", ({ digit, by }) => {
+    const log = document.getElementById("dtmfLog");
+    if (log) log.textContent = `${by} pressed: ${digit}`;
+  });
 
   socket.on("peer-left", () => {
     document.getElementById("remoteLabel").textContent = "Left the room";
@@ -173,10 +214,123 @@ function toggleCam() {
 }
 
 function leaveRoom() {
-  if (socket) socket.disconnect();
-  if (pc) pc.close();
-  if (localStream) localStream.getTracks().forEach((t) => t.stop());
-  window.location.href = ROLE === "hr" ? "/dashboard.html" : "about:blank";
+  stopRecordingAndUpload().finally(() => {
+    if (socket) socket.disconnect();
+    if (pc) pc.close();
+    if (localStream) localStream.getTracks().forEach((t) => t.stop());
+    window.location.href = ROLE === "hr" ? "/dashboard.html" : "about:blank";
+  });
+}
+
+// ---------------- Dial pad (RTCDTMFSender) ----------------
+function buildDialpad() {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+  document.getElementById("dialpadGrid").innerHTML = keys.map((k) => `<button onclick="pressDigit('${k}')">${k}</button>`).join("");
+}
+function toggleDialpad() {
+  document.getElementById("dialpadCard").classList.toggle("show");
+}
+function pressDigit(digit) {
+  const log = document.getElementById("dtmfLog");
+  if (log) log.textContent = `You pressed: ${digit}`;
+  socket.emit("dtmf-pressed", { roomId: ROOM.roomId, digit, by: myName });
+
+  // Real WebRTC DTMF - sends telephone-event RTP packets over the active audio sender.
+  // Meaningful once this call is bridged into a real telephony/IVR system (Asterisk/FreeSWITCH/
+  // Twilio); between two plain browser peers there's no PSTN endpoint to receive it, so this is
+  // the genuine API call with no visible effect on the other browser tab beyond the log above.
+  try {
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
+      if (sender && sender.dtmf && sender.dtmf.canInsertDTMF) sender.dtmf.insertDTMF(digit, 200, 100);
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+// ---------------- Call recording (MediaRecorder + Web Audio mixing) ----------------
+const RECORDING_MIME_CANDIDATES = [
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm;codecs=h264,opus",
+  "video/webm",
+  "video/mp4", // Safari
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+];
+
+function setRecordingStatus(text, isError) {
+  const el = document.getElementById("recIndicator");
+  if (!el) return;
+  el.style.display = "inline-block";
+  el.innerHTML = isError ? `<span style="color:var(--danger);">⚠ ${escapeHtml(text)}</span>` : `<span class="rec-dot"></span>${escapeHtml(text)}`;
+}
+
+function startRecording() {
+  try {
+    if (!localStream) { setRecordingStatus("Recording unavailable — no microphone/camera access", true); return; }
+    if (typeof MediaRecorder === "undefined") { setRecordingStatus("Recording is not supported in this browser", true); return; }
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    mixDest = audioCtx.createMediaStreamDestination();
+    const localAudioTracks = localStream.getAudioTracks();
+    if (localAudioTracks.length) audioCtx.createMediaStreamSource(new MediaStream(localAudioTracks)).connect(mixDest);
+
+    const videoTrack = localStream.getVideoTracks()[0];
+    const combined = new MediaStream();
+    if (videoTrack) combined.addTrack(videoTrack);
+    mixDest.stream.getAudioTracks().forEach((t) => combined.addTrack(t));
+
+    if (!combined.getTracks().length) { setRecordingStatus("Nothing to record — no audio or video track available", true); return; }
+
+    const mimeType = RECORDING_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+    if (!mimeType) { setRecordingStatus("No supported recording format in this browser", true); return; }
+
+    mediaRecorder = new MediaRecorder(combined, { mimeType });
+    recordedChunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onerror = (e) => setRecordingStatus(`Recording error: ${e.error?.message || "unknown"}`, true);
+    mediaRecorder.start(1000);
+    setRecordingStatus("Recording this call", false);
+  } catch (e) {
+    setRecordingStatus(`Recording could not start (${e.message})`, true);
+  }
+}
+
+function attachRemoteToRecording(stream) {
+  try {
+    if (!audioCtx || !mixDest) return;
+    const remoteAudioTracks = stream.getAudioTracks();
+    if (remoteAudioTracks.length) audioCtx.createMediaStreamSource(new MediaStream(remoteAudioTracks)).connect(mixDest);
+  } catch (e) { /* non-fatal */ }
+}
+
+async function stopRecordingAndUpload() {
+  if (!mediaRecorder || recordingUploaded) return;
+  recordingUploaded = true;
+  setRecordingStatus("Saving recording…", false);
+  return new Promise((resolve) => {
+    mediaRecorder.onstop = async () => {
+      try {
+        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
+        if (blob.size > 0) {
+          const fd = new FormData();
+          fd.append("recording", blob, "call-recording.webm");
+          const res = ROLE === "candidate"
+            ? await fetch(`/api/public/room/${TOKEN}/recording`, { method: "POST", body: fd })
+            : await fetch(`/api/interviews/${SESSION_ID}/recording`, { method: "POST", headers: { Authorization: `Bearer ${API.token()}` }, body: fd });
+          if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Upload failed (${res.status})`); }
+          setRecordingStatus("Recording saved", false);
+        } else {
+          setRecordingStatus("No recording data was captured", true);
+        }
+      } catch (e) {
+        setRecordingStatus(`Could not save recording: ${e.message}`, true);
+      }
+      resolve();
+    };
+    try { mediaRecorder.stop(); } catch (e) { resolve(); }
+  });
 }
 
 // ---------------- Transcript ----------------
@@ -259,6 +413,7 @@ async function runNextQuestion() {
     document.getElementById("candidateQA").style.display = "none";
     setStatus("That's the end of your questions — thank you! Submitting your interview…", false);
     await speak("Thank you, that concludes our conversation. Your responses have been recorded.");
+    await stopRecordingAndUpload();
     await fetch(`/api/public/room/${TOKEN}/complete`, { method: "POST" });
     setStatus("Your interview is complete. You may close this window — HR will follow up soon.", false);
     return;
@@ -274,7 +429,6 @@ async function runNextQuestion() {
     document.getElementById("qaAnswer").value = spoken;
     await confirmAnswer(spoken);
   }
-  // If nothing was picked up by speech, the candidate can still type + click "Submit answer".
 }
 
 function renderQuestion(q) {
@@ -322,6 +476,34 @@ async function resumeAI() {
 
 function openDecision() {
   document.getElementById("decisionCard").style.display = "block";
+  loadAnalysis();
+}
+
+async function loadAnalysis() {
+  try {
+    const data = await API.get(`/api/interviews/${SESSION_ID}/call-analysis?refresh=true`);
+    renderAnalysis(data.analysis);
+  } catch (e) { /* non-fatal */ }
+}
+
+function renderAnalysis(analysis) {
+  const card = document.getElementById("analysisCard");
+  const body = document.getElementById("analysisBody");
+  if (!analysis || !analysis.available) {
+    card.style.display = "block";
+    body.innerHTML = `<div class="muted" style="font-size:12.5px;">${analysis ? escapeHtml(analysis.reason) : "No analysis yet."}</div>`;
+    return;
+  }
+  card.style.display = "block";
+  const sentimentPill = analysis.overallSentiment.label === "positive" ? "active" : analysis.overallSentiment.label === "negative" ? "suspended" : "neutral";
+  body.innerHTML = `
+    <div class="analysis-row"><span>Overall sentiment</span><span class="pill ${sentimentPill}">${analysis.overallSentiment.label} (${analysis.overallSentiment.score})</span></div>
+    <div class="analysis-row"><span>Anger detected</span><span class="pill ${analysis.angerDetected ? "suspended" : "active"}">${analysis.angerDetected ? `Yes (${analysis.angerFlags.length})` : "No"}</span></div>
+    <div class="analysis-row"><span>Candidate engagement</span><span>${analysis.engagementScore}/100</span></div>
+    <div class="analysis-row"><span>Composite call quality</span><span><strong>${analysis.qualityScore}/100</strong></span></div>
+    <div class="analysis-row"><span>Speaking share (candidate)</span><span>${analysis.diarization.candidate ? analysis.diarization.candidate.talkTimeSharePct : 0}%</span></div>
+    <div class="muted" style="font-size:11px; margin-top:8px;">${escapeHtml(analysis.method)}</div>
+  `;
 }
 
 async function submitDecision() {

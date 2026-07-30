@@ -65,8 +65,8 @@
     <div id="view-integrations" style="display:none;">
       <div class="page-head">
         <div>
-          <h1>Integrations &amp; vendor configuration</h1>
-          <p>Choose which LLM, ASR/STT, TTS voice, bot engine, telephony, meeting and mail-server vendor powers each part of the platform. Settings apply platform-wide.</p>
+          <h1>Integrations status</h1>
+          <p>Every real credential (SMTP, WhatsApp, telephony, webhooks, LLM/STT/TTS) is configured in the server's <code>.env</code> file, never stored in the database. This page shows which vendor is active per category and whether it's fully configured — edit <code>.env</code> and restart the server to change anything here.</p>
         </div>
       </div>
       <div id="integrationsGrid" class="grid cols-2"></div>

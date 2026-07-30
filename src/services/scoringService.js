@@ -95,4 +95,16 @@ async function computeReadinessScore(candidate) {
   };
 }
 
-module.exports = { DEFAULT_WEIGHTS, computeKpiScore, getWeights, setWeights, computeReadinessScore };
+async function getPretestThreshold(tenantId) {
+  const doc = await db.find("pretestThreshold", (t) => t.tenantId === tenantId);
+  return doc ? { enabled: doc.enabled, minScore: doc.minScore, id: doc.id } : { enabled: false, minScore: 50 };
+}
+
+async function setPretestThreshold(tenantId, { enabled, minScore }) {
+  const existing = await db.find("pretestThreshold", (t) => t.tenantId === tenantId);
+  const clean = { tenantId, enabled: !!enabled, minScore: Number(minScore) || 50, updatedAt: new Date().toISOString() };
+  if (existing) return db.update("pretestThreshold", existing.id, clean);
+  return db.insert("pretestThreshold", clean);
+}
+
+module.exports = { DEFAULT_WEIGHTS, computeKpiScore, getWeights, setWeights, computeReadinessScore, getPretestThreshold, setPretestThreshold };

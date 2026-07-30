@@ -1,7 +1,7 @@
 const express = require("express");
 const { requireAuth } = require("../middleware/auth");
 const industryService = require("../services/industryService");
-const { getLevelCatalog } = require("../services/formTemplates");
+const { getLevelCatalog, getModuleCatalog } = require("../services/formTemplates");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -14,6 +14,10 @@ router.get("/industries", async (req, res) => {
 
 router.get("/levels", (req, res) => {
   res.json({ levels: getLevelCatalog() });
+});
+
+router.get("/assessment-modules", (req, res) => {
+  res.json({ modules: getModuleCatalog() });
 });
 
 module.exports = router;

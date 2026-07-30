@@ -3,6 +3,7 @@ let CANDIDATES = [];
 let activeCandidateId = null;
 let INDUSTRIES = [];
 let LEVELS = [];
+let MODULES = [];
 let metricRowCount = 0;
 const INDUSTRY_LABELS = {};
 const LEVEL_LABELS = {};
@@ -29,13 +30,20 @@ const LEVEL_LABELS = {};
 
 async function loadMetaCatalogs() {
   try {
-    const [ind, lvl] = await Promise.all([API.get("/api/meta/industries"), API.get("/api/meta/levels")]);
+    const [ind, lvl, mod] = await Promise.all([API.get("/api/meta/industries"), API.get("/api/meta/levels"), API.get("/api/meta/assessment-modules")]);
     INDUSTRIES = ind.industries;
     LEVELS = lvl.levels;
+    MODULES = mod.modules;
     INDUSTRIES.forEach((i) => (INDUSTRY_LABELS[i.key] = i.label));
     LEVELS.forEach((l) => (LEVEL_LABELS[l.key] = l.label));
     document.getElementById("cIndustry").innerHTML = INDUSTRIES.map((i) => `<option value="${i.key}">${escapeHtml(i.label)}</option>`).join("");
     document.getElementById("cLevel").innerHTML = LEVELS.map((l) => `<option value="${l.key}" ${l.key === "associate" ? "selected" : ""}>${escapeHtml(l.label)}</option>`).join("");
+    document.getElementById("cModules").innerHTML = MODULES.map((m) => `
+      <label class="opt-row" style="margin-bottom:6px;">
+        <input type="checkbox" class="module-check" value="${m.key}" checked style="width:auto;"/>
+        <span><strong>${escapeHtml(m.label)}</strong><br/><span class="muted" style="font-size:11px;">${escapeHtml(m.description)}</span></span>
+      </label>
+    `).join("");
   } catch (e) { toast(e.message, true); }
 }
 
@@ -51,11 +59,35 @@ async function toggleAvailability() {
 function logout() { API.clearSession(); window.location.href = "/index.html"; }
 
 function showView(view) {
-  ["reports", "candidates", "interviews", "features"].forEach((v) => {
+  ["reports", "candidates", "interviews", "features", "security"].forEach((v) => {
     document.getElementById(`view-${v}`).style.display = v === view ? "block" : "none";
   });
   document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   if (view === "interviews") loadInterviews();
+  if (view === "security") loadSecurityView();
+  if (view === "features") loadThreshold();
+}
+
+async function loadThreshold() {
+  if (!hasFeature("kpi_analytics")) {
+    document.getElementById("thresholdCard").innerHTML = `<p class="muted" style="font-size:12.5px;">Enable KPI & Performance Analytics to use auto-screening.</p>`;
+    return;
+  }
+  try {
+    const data = await API.get("/api/scoring/pretest-threshold");
+    document.getElementById("thresholdEnabled").checked = data.threshold.enabled;
+    document.getElementById("thresholdScore").value = data.threshold.minScore;
+  } catch (e) { /* non-fatal */ }
+}
+
+async function saveThreshold() {
+  try {
+    await API.put("/api/scoring/pretest-threshold", {
+      enabled: document.getElementById("thresholdEnabled").checked,
+      minScore: Number(document.getElementById("thresholdScore").value) || 50,
+    });
+    toast("Auto-screening threshold saved");
+  } catch (e) { toast(e.message, true); }
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove("show"); }
@@ -120,7 +152,7 @@ function renderCandidates() {
 }
 
 function openAddCandidate() {
-  ["cName", "cEmail", "cPhone", "cRole"].forEach((id) => (document.getElementById(id).value = ""));
+  ["cName", "cEmail", "cPhone", "cRole", "cSkills"].forEach((id) => (document.getElementById(id).value = ""));
   document.getElementById("cCaseType").value = "screening";
   document.getElementById("errAddCandidate").classList.remove("show");
   openModal("modalAddCandidate");
@@ -137,6 +169,8 @@ async function submitAddCandidate() {
     level: document.getElementById("cLevel").value,
     appliedRole: document.getElementById("cRole").value.trim(),
     caseType: document.getElementById("cCaseType").value,
+    requiredSkills: document.getElementById("cSkills").value.trim(),
+    assessmentModules: Array.from(document.querySelectorAll(".module-check:checked")).map((el) => el.value),
   };
   try {
     await API.post("/api/candidates", payload);
@@ -184,10 +218,94 @@ async function openCandidate(id) {
       addMetricRow();
       document.getElementById("kpiErr").classList.remove("show");
       await loadKpiPanel();
+      await loadPromotionRecommendation();
     }
+
+    renderResumeInfo(c);
+    document.getElementById("resumeErr").classList.remove("show");
 
     openModal("modalCandidate");
   } catch (e) { toast(e.message, true); }
+}
+
+// ---------------- Resume ----------------
+function renderResumeInfo(c) {
+  const el = document.getElementById("resumeInfo");
+  if (!c.resumeUploadedAt) { el.innerHTML = "No resume uploaded yet."; return; }
+  const match = c.skillMatch;
+  el.innerHTML = `
+    <div>${escapeHtml(c.resumeFilename || "resume")} — uploaded ${timeAgo(c.resumeUploadedAt)}
+      <a href="/api/candidates/${c.id}/resume" target="_blank" onclick="return downloadResume(event,'${c.id}')">download</a>
+    </div>
+    ${match && match.score !== null ? `<div style="margin-top:4px;">Skill match: <strong>${match.score}%</strong> — matched: ${match.matched.map(escapeHtml).join(", ") || "none"}${match.missing.length ? ` · missing: ${match.missing.map(escapeHtml).join(", ")}` : ""}</div>` : ""}
+  `;
+}
+
+function downloadResume(e, candidateId) {
+  e.preventDefault();
+  fetch(`/api/candidates/${candidateId}/resume`, { headers: { Authorization: `Bearer ${API.token()}` } })
+    .then((r) => { if (!r.ok) throw new Error("No resume on file"); return r.blob(); })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "resume"; a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch((err) => toast(err.message, true));
+  return false;
+}
+
+async function uploadResume() {
+  const errEl = document.getElementById("resumeErr");
+  errEl.classList.remove("show");
+  const fileInput = document.getElementById("resumeFile");
+  if (!fileInput.files.length) { errEl.textContent = "Choose a file first."; errEl.classList.add("show"); return; }
+  const fd = new FormData();
+  fd.append("resume", fileInput.files[0]);
+  try {
+    const res = await fetch(`/api/candidates/${activeCandidateId}/resume`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${API.token()}` },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    toast("Resume uploaded and scanned");
+    renderResumeInfo(data.candidate);
+    fileInput.value = "";
+    await loadPromotionRecommendation();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  }
+}
+
+// ---------------- Promotion recommendation ----------------
+async function loadPromotionRecommendation() {
+  if (!hasFeature("kpi_analytics")) return;
+  try {
+    const rec = await API.get(`/api/candidates/${activeCandidateId}/promotion-recommendation`);
+    renderPromotionRecommendation(rec);
+  } catch (e) { /* non-fatal */ }
+}
+
+function renderPromotionRecommendation(rec) {
+  const el = document.getElementById("promoRecBox");
+  const confColor = rec.confidenceLevel === "High" ? "active" : rec.confidenceLevel === "Medium" ? "created" : "suspended";
+  el.innerHTML = `
+    <div class="card" style="padding:12px; background:#fafbfc;">
+      <div class="flex between" style="margin-bottom:6px;">
+        <div><strong>${rec.eligible ? "Eligible" : "Not yet eligible"}</strong> · Score ${rec.eligibilityScore ?? "—"}</div>
+        <span class="pill ${confColor}">Confidence: ${rec.confidenceLevel}</span>
+      </div>
+      <div style="margin-bottom:4px;"><strong>Recommended next role:</strong> ${escapeHtml(rec.recommendedNextRole)}</div>
+      <div style="margin-bottom:4px;"><strong>Suggested hike:</strong> ${rec.salaryRecommendation.band} (${rec.salaryRecommendation.suggestedHikePct ?? "n/a"})</div>
+      ${rec.riskAnalysis.length ? `<div style="margin-bottom:4px;"><strong>Risk flags:</strong> ${rec.riskAnalysis.map(escapeHtml).join("; ")}</div>` : ""}
+      ${rec.skillGapAnalysis.missing && rec.skillGapAnalysis.missing.length ? `<div style="margin-bottom:4px;"><strong>Skill gaps:</strong> ${rec.skillGapAnalysis.missing.map(escapeHtml).join(", ")}</div>` : ""}
+      <div style="margin-bottom:4px;"><strong>Training recommendations:</strong> ${rec.trainingRecommendations.map(escapeHtml).join("; ")}</div>
+      <div class="muted" style="font-size:11.5px; margin-top:8px;">${escapeHtml(rec.disclaimer)}</div>
+    </div>
+  `;
 }
 
 // ---------------- KPI & readiness ----------------
@@ -293,6 +411,7 @@ async function submitKpiRecord() {
     metricRowCount = 0;
     addMetricRow();
     await loadKpiPanel();
+    await loadPromotionRecommendation();
   } catch (e) {
     errEl.textContent = e.message;
     errEl.classList.add("show");
@@ -309,6 +428,7 @@ async function saveManualScores() {
     });
     toast("Scores saved");
     await loadKpiPanel();
+    await loadPromotionRecommendation();
   } catch (e) { toast(e.message, true); }
 }
 
@@ -364,4 +484,75 @@ function renderMyFeatures() {
       <span class="pill ${f.enabled ? "active" : "suspended"}">${f.enabled ? "Enabled" : "Off"}</span>
     </div>
   `).join("");
+}
+
+// ---------------- Security / MFA ----------------
+let mfaSetupSecret = null;
+
+async function loadSecurityView() {
+  try {
+    const status = await API.get("/api/me/mfa/status");
+    renderMfaCard(status.mfaEnabled);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderMfaCard(enabled) {
+  const card = document.getElementById("mfaCard");
+  if (enabled) {
+    card.innerHTML = `
+      <div class="flex between">
+        <div><strong>Two-factor authentication is ON</strong><div class="muted" style="font-size:12.5px;">You'll be asked for a code from your authenticator app at every login.</div></div>
+        <span class="pill active">Enabled</span>
+      </div>
+      <div class="field" style="margin-top:14px; max-width:220px;"><label>Enter code to disable</label><input id="mfaDisableCode" maxlength="6" inputmode="numeric" /></div>
+      <button class="btn danger sm" onclick="disableMfa()">Disable two-factor authentication</button>
+      <div id="mfaErr" class="error-msg" style="margin-top:8px;"></div>
+    `;
+  } else {
+    card.innerHTML = `
+      <div><strong>Two-factor authentication is OFF</strong><div class="muted" style="font-size:12.5px; margin-bottom:12px;">Scan the QR code below with any authenticator app (Google Authenticator, Authy, 1Password, etc), then enter the 6-digit code to turn it on.</div></div>
+      <button class="btn teal sm" onclick="startMfaSetup()">Set up two-factor authentication</button>
+      <div id="mfaSetupBox" style="margin-top:14px;"></div>
+      <div id="mfaErr" class="error-msg" style="margin-top:8px;"></div>
+    `;
+  }
+}
+
+async function startMfaSetup() {
+  try {
+    const data = await API.post("/api/me/mfa/setup", {});
+    mfaSetupSecret = data.secret;
+    document.getElementById("mfaSetupBox").innerHTML = `
+      <img src="${data.qrDataUrl}" alt="MFA QR code" style="width:180px; height:180px; border:1px solid var(--border); border-radius:8px;" />
+      <div class="copy-box" style="margin-top:8px; max-width:320px;">${escapeHtml(data.secret)}</div>
+      <div class="field" style="margin-top:10px; max-width:220px;"><label>Enter the 6-digit code</label><input id="mfaConfirmCode" maxlength="6" inputmode="numeric" /></div>
+      <button class="btn teal sm" onclick="confirmMfaSetup()">Confirm &amp; enable</button>
+    `;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function confirmMfaSetup() {
+  const errEl = document.getElementById("mfaErr");
+  errEl.classList.remove("show");
+  try {
+    await API.post("/api/me/mfa/confirm", { token: document.getElementById("mfaConfirmCode").value.trim() });
+    toast("Two-factor authentication enabled");
+    await loadSecurityView();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  }
+}
+
+async function disableMfa() {
+  const errEl = document.getElementById("mfaErr");
+  errEl.classList.remove("show");
+  try {
+    await API.post("/api/me/mfa/disable", { token: document.getElementById("mfaDisableCode").value.trim() });
+    toast("Two-factor authentication disabled");
+    await loadSecurityView();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  }
 }

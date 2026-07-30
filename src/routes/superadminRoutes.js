@@ -144,19 +144,37 @@ router.get("/overview", async (req, res) => {
   });
 });
 
-// ---- Platform-wide integration / vendor configuration ----
+// ---- Platform-wide integration status (real credentials live only in .env — see .env.sample) ----
 const integrations = require("../services/integrationService");
 
 router.get("/integrations", async (req, res) => {
-  res.json({ categories: await integrations.getAllConfigs() });
+  res.json({ categories: integrations.buildStatus() });
 });
 
-router.put("/integrations/:category", async (req, res) => {
+// Real connection tests — no send/call is placed, just a lightweight auth/connection check
+// against the actual configured vendor. Lets Superadmin verify .env credentials from the UI.
+router.post("/integrations/:category/test", async (req, res) => {
   const { category } = req.params;
-  if (!integrations.CATEGORY_KEYS.includes(category)) return res.status(400).json({ error: "Unknown integration category" });
-  const saved = await integrations.saveConfig(category, req.body || {});
-  await activity.log({ tenantId: null, userId: req.user.id, actorName: req.user.name, role: "superadmin", action: "integration.updated", details: `Updated ${category} integration (vendor: ${saved.vendor || "n/a"})` });
-  res.json({ config: integrations.redact(saved) });
+  const notify = require("../services/notifyService");
+  const webhooks = require("../services/webhookService");
+  const mattermost = require("../services/mattermostService");
+  const chatwoot = require("../services/chatwootService");
+  try {
+    let result;
+    if (category === "mail_server") result = await notify.testEmailConnection();
+    else if (category === "whatsapp") result = await notify.testWhatsappConnection();
+    else if (category === "telephony") result = await notify.testTelephonyConnection();
+    else if (category === "webhooks") result = await webhooks.testPing();
+    else if (category === "team_chat") result = await mattermost.testConnection();
+    else if (category === "chatwoot") result = await chatwoot.testConnection();
+    else return res.status(400).json({ error: "This category has no live connection test" });
+
+    await activity.log({ tenantId: null, userId: req.user.id, actorName: req.user.name, role: "superadmin", action: "integration.tested", details: `Tested ${category} — success: ${result.detail || "OK"}` });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    await activity.log({ tenantId: null, userId: req.user.id, actorName: req.user.name, role: "superadmin", action: "integration.test_failed", details: `Tested ${category} — failed: ${e.message}` });
+    res.status(400).json({ ok: false, error: e.message });
+  }
 });
 
 // ---- Industry catalog management (add/remove custom industries platform-wide) ----
@@ -195,7 +213,7 @@ async function withTenantSummary(tenant) {
 }
 
 function publicUser(u) {
-  const { passwordHash, ...rest } = u;
+  const { passwordHash, mfaSecret, mfaPendingSecret, ...rest } = u;
   return rest;
 }
 

@@ -18,7 +18,7 @@ router.get("/", async (req, res) => {
     features = FEATURE_CATALOG.map((f) => ({ key: f.key, label: f.label, enabled: !!flags.find((x) => x.key === f.key)?.enabled }));
   }
 
-  const { passwordHash, ...safeUser } = user;
+  const { passwordHash, mfaSecret, mfaPendingSecret, ...safeUser } = user;
   res.json({ user: safeUser, tenant, features });
 });
 
@@ -28,7 +28,7 @@ router.patch("/availability", async (req, res) => {
   const { available } = req.body || {};
   const updated = await db.update("users", req.user.id, { available: !!available });
   await activity.log({ tenantId: req.user.tenantId, userId: req.user.id, actorName: req.user.name, role: req.user.role, action: "availability.changed", details: `${req.user.name} set availability to ${available ? "Available" : "Busy"}` });
-  const { passwordHash, ...safeUser } = updated;
+  const { passwordHash, mfaSecret, mfaPendingSecret, ...safeUser } = updated;
   res.json({ user: safeUser });
 });
 

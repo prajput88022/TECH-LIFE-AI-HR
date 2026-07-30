@@ -13,9 +13,11 @@
     <div class="role-tag" id="tenantTag">—</div>
 
     <button class="nav-item active" data-view="reports" onclick="showView('reports')">Reports &amp; Activity</button>
+    <button class="nav-item" onclick="window.location.href='/reports.html'">Full Reports &amp; Approvals ↗</button>
     <button class="nav-item" data-view="candidates" onclick="showView('candidates')">Candidates</button>
     <button class="nav-item" data-view="interviews" onclick="showView('interviews')">Interviews</button>
     <button class="nav-item" data-view="features" onclick="showView('features')">My Features</button>
+    <button class="nav-item" data-view="security" onclick="showView('security')">Security</button>
 
     <div class="sidebar-footer">
       <div class="who-box">
@@ -99,6 +101,25 @@
         </div>
       </div>
       <div class="card" id="myFeaturesList"></div>
+
+      <div class="section-title">Auto-screening threshold</div>
+      <div class="card" id="thresholdCard">
+        <p class="muted" style="font-size:12.5px; margin-top:0;">If enabled, candidates whose overall pre-test score falls below this minimum are automatically marked "auto screened out" right after submitting — they won't be scheduled for an interview. HR can still review and manually move them forward.</p>
+        <label class="opt-row" style="max-width:260px;"><input type="checkbox" id="thresholdEnabled" style="width:auto;"/> Enable auto-screening</label>
+        <div class="field" style="max-width:200px; margin-top:10px;"><label>Minimum pre-test score (0-100)</label><input type="number" id="thresholdScore" min="0" max="100" value="50" /></div>
+        <button class="btn teal sm" onclick="saveThreshold()">Save</button>
+      </div>
+    </div>
+
+    <!-- SECURITY -->
+    <div id="view-security" style="display:none;">
+      <div class="page-head">
+        <div>
+          <h1>Security</h1>
+          <p>Add two-factor authentication (TOTP) to your account for an extra layer of protection.</p>
+        </div>
+      </div>
+      <div class="card" id="mfaCard"></div>
     </div>
   </div>
 </div>
@@ -129,6 +150,11 @@
       </div>
     </div>
     <div class="field"><label>Applied role (optional)</label><input id="cRole" placeholder="e.g. Backend Engineer" /></div>
+    <div class="field"><label>Required skills (comma separated, optional)</label><input id="cSkills" placeholder="e.g. Python, AWS, Leadership" /></div>
+    <div class="field">
+      <label>Assessment sections to assign</label>
+      <div id="cModules" class="muted" style="font-size:12.5px;">Loading…</div>
+    </div>
     <div class="flex end">
       <button class="btn secondary" onclick="closeModal('modalAddCandidate')">Cancel</button>
       <button class="btn teal" onclick="submitAddCandidate()">Add candidate</button>
@@ -147,11 +173,20 @@
       <button class="btn teal sm" onclick="sendLink('email')">Send by Email</button>
       <button class="btn teal sm" onclick="sendLink('whatsapp')">Send by WhatsApp</button>
       <button class="btn teal sm" onclick="sendLink('call')">Trigger AI Call</button>
+      <button class="btn teal sm" onclick="sendLink('chatwoot')">Send via Chatwoot</button>
     </div>
     <div id="lastLinkBox" style="margin-top:10px;"></div>
 
     <div class="section-title">Interview session</div>
     <div id="candSession" class="muted" style="font-size:13px;"></div>
+
+    <div class="section-title">Resume</div>
+    <div id="resumeInfo" class="muted" style="font-size:13px; margin-bottom:8px;"></div>
+    <div class="flex">
+      <input type="file" id="resumeFile" accept=".pdf,.docx,.txt" style="flex:1;" />
+      <button class="btn secondary sm" onclick="uploadResume()">Upload</button>
+    </div>
+    <div id="resumeErr" class="error-msg" style="margin-top:6px;"></div>
 
     <div id="kpiSection" style="display:none;">
       <div class="section-title">KPI &amp; promotion-readiness</div>
@@ -170,6 +205,9 @@
       <button class="btn secondary sm" onclick="addMetricRow()">+ Add metric</button>
       <button class="btn teal sm" onclick="submitKpiRecord()">Import KPI record</button>
       <div id="kpiErr" class="error-msg" style="margin-top:8px;"></div>
+
+      <div class="section-title" style="font-size:14px;">Promotion recommendation</div>
+      <div id="promoRecBox" class="muted" style="font-size:13px;">Load a KPI/score first, then this section will populate.</div>
     </div>
 
     <div class="section-title">Notification history</div>

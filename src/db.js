@@ -19,7 +19,20 @@ const path = require("path");
 const PouchDB = require("pouchdb");
 PouchDB.plugin(require("pouchdb-find"));
 
-const COUCHDB_URL = process.env.COUCHDB_URL;
+function resolveCouchUrl() {
+  if (process.env.COUCHDB_URL) return process.env.COUCHDB_URL;
+  const host = process.env.COUCHDB_HOST;
+  if (!host) return null; // no real CouchDB configured -> fall back to embedded store
+  const protocol = process.env.COUCHDB_PROTOCOL || "http";
+  const port = process.env.COUCHDB_PORT || "5984";
+  const dbName = process.env.COUCHDB_DBNAME || "techlifehr";
+  const user = process.env.COUCHDB_USER;
+  const password = process.env.COUCHDB_PASSWORD;
+  const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(password || "")}@` : "";
+  return `${protocol}://${auth}${host}:${port}/${dbName}`;
+}
+
+const COUCHDB_URL = resolveCouchUrl();
 const LOCAL_PATH = path.join(__dirname, "..", "data", "couch-local");
 if (!COUCHDB_URL) fs.mkdirSync(LOCAL_PATH, { recursive: true });
 
@@ -94,8 +107,19 @@ async function reset() {
   await Promise.all(everything.rows.filter((r) => !r.id.startsWith("_design/")).map((r) => couch.remove(r.doc)));
 }
 
+// ---- Attachments (used for resume file storage on candidate documents) ----
+async function putAttachment(docId, attachmentId, buffer, contentType) {
+  const doc = await couch.get(docId);
+  const res = await couch.putAttachment(docId, attachmentId, doc._rev, buffer, contentType);
+  return res;
+}
+
+async function getAttachment(docId, attachmentId) {
+  return couch.getAttachment(docId, attachmentId);
+}
+
 function info() {
   return { backend: COUCHDB_URL ? "remote-couchdb" : "embedded-pouchdb (couchdb protocol)", target: COUCHDB_URL || LOCAL_PATH };
 }
 
-module.exports = { insert, all, find, getById, update, remove, reset, info, couch };
+module.exports = { insert, all, find, getById, update, remove, reset, info, couch, putAttachment, getAttachment };

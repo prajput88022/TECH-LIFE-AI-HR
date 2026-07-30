@@ -6,7 +6,13 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "verify:email": "node tests/verify-email.js",
+    "verify:webhook": "node tests/verify-webhook.js",
+    "verify:asterisk": "node tests/verify-asterisk.js",
+    "verify:mattermost": "node tests/verify-mattermost.js",
+    "verify:chatwoot": "node tests/verify-chatwoot.js",
+    "verify:twilio-whatsapp": "NODE_TLS_REJECT_UNAUTHORIZED=0 node tests/verify-twilio-whatsapp-contract.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -14,10 +20,18 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.0",
+    "multer": "^2.2.0",
     "nanoid": "^3.3.16",
     "nodemailer": "^9.0.3",
+    "pdf-parse": "^2.4.5",
     "pouchdb": "^9.0.0",
     "pouchdb-find": "^9.0.0",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "mailparser": "^3.9.14",
+    "smtp-server": "^3.19.2"
   }
 }

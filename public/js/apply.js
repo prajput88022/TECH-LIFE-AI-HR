@@ -34,24 +34,54 @@ let TEMPLATE = null;
       </div>
     `).join("");
 
-    document.getElementById("questionFields").innerHTML = data.template.questions.map((q) => {
-      if (q.type === "mcq") {
-        return `<div class="q-block">
-          <div class="qtext">${escapeHtml(q.text)}</div>
-          ${q.options.map((opt, i) => `
-            <label class="opt-row"><input type="radio" name="q_${q.id}" value="${escapeHtml(opt)}" ${i === 0 ? "" : ""} required/> ${escapeHtml(opt)}</label>
-          `).join("")}
-        </div>`;
-      }
-      return `<div class="q-block">
-        <div class="qtext">${escapeHtml(q.text)}</div>
-        <textarea name="q_${q.id}" rows="3" required></textarea>
-      </div>`;
-    }).join("");
+    const sections = data.template.sections;
+    document.getElementById("questionFields").innerHTML = [
+      renderSection("aptitude", sections.aptitude, renderMcq),
+      renderSection("technical", sections.technical, renderMixed),
+      renderSection("personality", sections.personality, renderLikert),
+      renderSection("communication", sections.communication, renderText),
+    ].join("");
   } catch (e) {
     document.getElementById("loading").textContent = e.message;
   }
 })();
+
+function renderSection(key, section, renderQuestion) {
+  return `
+    <div class="section-title">${escapeHtml(section.label)}</div>
+    <div class="muted" style="font-size:12.5px; margin-bottom:10px;">${escapeHtml(section.note || "")}</div>
+    ${section.questions.map((q) => renderQuestion(key, q)).join("")}
+  `;
+}
+
+function renderMcq(section, q) {
+  return `<div class="q-block">
+    <div class="qtext">${escapeHtml(q.text)}</div>
+    ${q.options.map((opt, i) => `<label class="opt-row"><input type="radio" name="${section}__${q.id}" value="${i}" required/> ${escapeHtml(opt)}</label>`).join("")}
+  </div>`;
+}
+
+function renderMixed(section, q) {
+  if (q.type === "mcq") return renderMcq(section, q);
+  return renderText(section, q);
+}
+
+function renderLikert(section, q) {
+  const labels = ["Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree"];
+  return `<div class="q-block">
+    <div class="qtext">${escapeHtml(q.text)}</div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      ${labels.map((l, i) => `<label class="opt-row" style="flex:1; min-width:110px; justify-content:center; text-align:center;"><input type="radio" name="${section}__${q.id}" value="${i + 1}" required/> ${l}</label>`).join("")}
+    </div>
+  </div>`;
+}
+
+function renderText(section, q) {
+  return `<div class="q-block">
+    <div class="qtext">${escapeHtml(q.text)}</div>
+    <textarea name="${section}__${q.id}" rows="3" required></textarea>
+  </div>`;
+}
 
 async function submitForm(e) {
   e.preventDefault();
@@ -64,8 +94,12 @@ async function submitForm(e) {
   const profile = {};
   TEMPLATE.profileFields.forEach((f) => { profile[f.label] = fd.get(`profile_${f.id}`) || ""; });
 
-  const answers = {};
-  TEMPLATE.questions.forEach((q) => { answers[q.text] = fd.get(`q_${q.id}`) || ""; });
+  const answers = { aptitude: {}, technical: {}, personality: {}, communication: {} };
+  Object.entries(TEMPLATE.sections).forEach(([sectionKey, section]) => {
+    section.questions.forEach((q) => {
+      answers[sectionKey][q.id] = fd.get(`${sectionKey}__${q.id}`) || "";
+    });
+  });
 
   try {
     const res = await fetch(`/api/public/form/${TOKEN}`, {

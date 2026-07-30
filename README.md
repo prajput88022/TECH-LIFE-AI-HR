@@ -17,6 +17,9 @@ npm install
 npm start
 ```
 
+For a real CouchDB deployment and a full walkthrough of how logins/users work (Superadmin →
+Organizations → HR/Management users → candidate invite links), see **`COUCHDB_SETUP.md`**.
+
 Then open:
 - Tenant/HR/Management login: **http://localhost:4000/index.html**
 - Superadmin console: **http://localhost:4000/superadmin.html**
@@ -78,6 +81,83 @@ speaks CouchDB's own replication protocol:
   ```
   You can also **replicate** the local embedded store into a real cluster at any time via
   `db.couch.replicate.to(new PouchDB(remoteUrl))`.
+
+## Closing the remaining gaps — this version
+
+- **Rate limiting on all public (unauthenticated) endpoints** — `src/middleware/rateLimit.js`,
+  a dependency-free in-memory sliding-window limiter. Reads: 60/min per IP; writes (accept
+  invite, submit pre-test, give consent): 12/min per IP. Verified: 13th write in a minute
+  correctly returns `429`.
+- **Real "Test connection" tooling on the Superadmin Integrations page** — one click, actual
+  network calls, no guessing whether `.env` credentials are right:
+  - Mail server → `nodemailer` `transporter.verify()` (real SMTP handshake + auth, no email sent)
+  - WhatsApp → `GET /{phone_number_id}` against the Meta Graph API with your token
+  - Telephony → Twilio account lookup, or a real Asterisk AMI / FreeSWITCH ESL login+logoff
+  - Webhooks → a real signed `test.ping` POST to every configured `WEBHOOK_URLS` entry
+- **More robust call recording** — a wider `MediaRecorder` codec fallback chain (including
+  Safari's `video/mp4`), explicit user-facing status/error messages instead of silent
+  failures, and upload-failure surfacing instead of a swallowed error.
+
+## Closing the remaining gaps — this version
+
+- **Chatwoot integration** — message candidates through a real Chatwoot conversation (visible
+  to your whole HR team in Chatwoot's own agent inbox) as a 4th send channel alongside email/
+  WhatsApp/call. Real Application API calls: contact lookup/create, conversation lookup/create,
+  message send. Verified against a local server reproducing Chatwoot's documented API contract
+  (`npm run verify:chatwoot`).
+- **Mattermost integration** — real-time HR/ops alerts via a genuine Incoming Webhook (anger
+  detected on a call, a case needs Management approval), plus an optional Mattermost-channel-as-
+  meeting-room mode. Verified with a real payload-contract test (`npm run verify:mattermost`).
+- **Every "real code, but unverifiable" integration from the previous version has now actually
+  been verified against something real**, not just code-reviewed:
+  - **Email** — verified against a real local SMTP server, full protocol handshake + delivery
+    (`npm run verify:email`)
+  - **Webhooks** — verified against a real local HTTP receiver with an independently
+    recomputed HMAC-SHA256 signature (`npm run verify:webhook`)
+  - **Asterisk AMI** — verified against a **real, locally-installed Asterisk 20 server**: real
+    TCP socket, real Login/Originate/Logoff actions, and confirmed bad credentials are
+    correctly rejected (`npm run verify:asterisk`)
+  - **Twilio + WhatsApp Cloud API** — cloud-only services with no local install option, so
+    verified against a local server reproducing their exact documented request/response
+    contract (`npm run verify:twilio-whatsapp`)
+  - See `tests/README.md` for exactly what each test proves and how to run it yourself
+- **Rate limiting on all public (unauthenticated) endpoints** and **real "Test connection"
+  buttons** on the Superadmin Integrations page (see previous section) remain in place.
+- **`COUCHDB_SETUP.md`** — a complete walkthrough of setting up real CouchDB (Docker or native),
+  and how the app's own login users (Superadmin → Organizations → HR/Management → candidate
+  invite links) actually get created, step by step.
+
+## What's new in this version — real-world integrations, call intelligence, and reports
+
+- **No more mock mode.** Email (SMTP), WhatsApp (Meta Cloud API), and outbound calls (Twilio /
+  Asterisk AMI / FreeSWITCH ESL) are real implementations. All credentials live in `.env` —
+  never in the database — see `.env.sample`.
+- **Real outbound webhooks**, HMAC-SHA256 signed, firing on `candidate.created`,
+  `invite.accepted`, `pretest.submitted`, `interview.scheduled`, `interview.completed`,
+  `decision.finalized`, and `candidate.auto_screened_out`. Configure `WEBHOOK_URLS` +
+  `WEBHOOK_SECRET` in `.env`; delivery history is visible on the Reports page.
+- **Aptitude / Personality / Communication assessment sections are now optional per candidate**
+  — HR/Management chooses which to assign when adding a candidate (Technical & Behavioral
+  always runs since it drives the AI interview itself).
+- **WebRTC call recording** — every interview room session records local + remote audio (mixed
+  via Web Audio) plus local video with `MediaRecorder`, uploaded and stored as a CouchDB
+  attachment on the interview session.
+- **Dial pad** with real `RTCDTMFSender` wiring — ready for bridging into a real telephony/IVR
+  system.
+- **Call analysis** — sentiment, anger detection, and diarization (per-speaker talk time) are
+  computed automatically from every interview's transcript (`src/services/callAnalysisService.js`,
+  local lexicon-based heuristics — no external AI call, see the note in that file).
+- **Consent capture** — candidates must explicitly consent to recording/transcription before
+  their interview room becomes usable.
+- **Seniority-based approval routing** — HR cannot finalize decisions for GM/VP-level cases;
+  only Management/Superadmin can.
+- **Pass-threshold auto-screening** — optionally auto-reject candidates whose pre-test score
+  falls below a configurable minimum, right after they submit.
+- **A full Reports & Approvals page** (`/reports.html`) — searchable, filterable (date range,
+  industry, level, case type, status, interview mode, decision, sentiment, anger-flagged-only,
+  free-text search) case list, a Pending Approvals queue with inline decision recording, a
+  Department Analytics view, and a Webhook Delivery Log — with CSV export respecting the
+  active filters.
 
 ## Feature toggles (Superadmin → Organizations)
 
