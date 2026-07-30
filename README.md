@@ -28,7 +28,7 @@ Seeded accounts (first run only):
 
 | Role | Login |
 |---|---|
-| Superadmin | `superadmin@techlife.ai` / `SuperAdmin@123` |
+| Superadmin | `superadmin@techlife.ai` or "superadmin@localhost" / `SuperAdmin@123` |
 | HR (Demo Corp, code `demo`) | `hr@demo.com` / `Demo@123` |
 | Management (Demo Corp, code `demo`) | `management@demo.com` / `Demo@123` |
 
